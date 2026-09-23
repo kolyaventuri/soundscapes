@@ -1539,6 +1539,14 @@ This feature is optional for v0.1.
 
 The first functional prototype may simply keep the initial four ambient assets for the entire session.
 
+## Optional advanced layered scenes
+
+An opt-in advanced generation mode may trade longer preparation for independently controlled layers: environmental ambience, requested music, human activity/crowd or nonverbal vocal textures, and discrete effects. These are functional mixing layers: diegetic music and sound effects can both belong to the scene. Generate only the layers the scene needs, with focused source prompts and shared acoustic context. Isolated outputs and compatible musical timing are hypotheses to validate, not guaranteed model capabilities; intelligible dialogue and lyrics remain outside this proposal.
+
+Generate and cache assets sequentially under the existing inference budget, then mix them cheaply into the same server-side HLS stream. Each layer can have its own schedule, gain and transitions; no continuous inference or additional client players are required. Retain bounded timelines, layer counts, aggregate headroom, future-only edits and pause/watchdog behavior. Music needs coherent phrases and transitions; initially prefer one music layer over independently synthesized instruments that might disagree in tempo or key.
+
+Keep the current simpler mode as the default. Before advanced preparation, communicate the longer estimated wait; during preparation, expose per-layer progress and time to playable audio. Define required versus optional layers and report degraded results when optional generation fails. Benchmark resources and conduct listening/multi-hour acceptance before presenting this mode as complete. This exploration is optional and does not block v0.1.
+
 ---
 
 # 38. Simulation Clock

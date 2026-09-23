@@ -161,6 +161,11 @@ Spec: §2, §21, §25–29, §41, §45, §47, §51.
 
 ## Optional after the required path
 
+- [ ] Prototype an opt-in **Layered scene (advanced)** mode with a longer, clearly estimated preparation time; retain the existing single-bed-pool mode as the default.
+- [ ] Plan only requested/appropriate layers: environmental ambience, music, human activity/crowd or nonverbal vocal textures, and discrete SFX. Generate/cache layers separately using suitable models, sequentially within the existing inference budget; do not require every scene to have every layer.
+- [ ] Extend persisted timelines and the FFmpeg mixer for independent layer gain, fades, entry/exit and optional ducking, producing one HLS stream. Bound layer/voice counts, sum-level headroom and future work; preserve pause/watchdog cancellation and the encoder commit boundary.
+- [ ] Evaluate isolated-source generation, consistent acoustics, unwanted source duplication, and music phrase/key/tempo continuity. Treat intelligible dialogue/lyrics as a separate capability, not promised by Stable Audio. Prototype longer music segments or continuation before splitting music into independently generated instrumental tracks.
+- [ ] Measure cold/cached startup, inference/memory/disk cost, multi-hour stability and listening quality for layered scenes; connect per-layer progress to the planned readiness estimate. Optional layer failures should degrade gracefully when the remaining scene is usable and clearly report missing content.
 - [ ] Slow scene mutations over 10–30 minutes with smooth transitions (§36).
 - [ ] Gradual replacement of the initial ambience pool (§37).
 - [ ] Saved-scene browsing (§30), richer loudness measurements, or additional presentation effects if required by listening results.
