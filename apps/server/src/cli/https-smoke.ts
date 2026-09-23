@@ -1,12 +1,17 @@
 import assert from 'node:assert/strict';
 import {execFile} from 'node:child_process';
-import {mkdtemp, readFile, rm} from 'node:fs/promises';
+import {
+	mkdtemp, readFile, readdir, rm,
+} from 'node:fs/promises';
 import {get} from 'node:https';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
+import process from 'node:process';
 import {promisify} from 'node:util';
+import {listenerSessionSchema} from '@soundscapes/shared';
 import {buildApp} from '../app.js';
-import {readConfig} from '../config.js';
+import {createFixture} from '../audio/fixture.js';
+import {readConfig, repositoryRoot} from '../config.js';
 
 const directory = await mkdtemp(path.join(tmpdir(), 'soundscapes-https-'));
 const certificate = path.join(directory, 'certificate.pem');
@@ -30,7 +35,10 @@ try {
 		key,
 		'-out',
 		certificate], {timeout: 10_000, maxBuffer: 8192});
-	const config = readConfig({DATA_DIR: directory, TLS_CERT_FILE: certificate, TLS_KEY_FILE: key});
+	const config = readConfig({
+		DATA_DIR: directory, TLS_CERT_FILE: certificate, TLS_KEY_FILE: key, SOUND_ENABLED: 'false', IDLE_TIMEOUT_SECONDS: '10',
+	});
+	await createFixture(config.fixturePath, config.ffmpegPath);
 	app = await buildApp({config});
 	const address = await app.listen({host: '127.0.0.1', port: 0});
 	const ca = await readFile(certificate);
@@ -53,7 +61,67 @@ try {
 	});
 	assert.equal(result.status, 200);
 	assert.equal((JSON.parse(result.body) as {status: string}).status, 'ok');
-	console.log('PASS: HTTPS API with certificate and hostname verification; temporary trust scoped to the test client.');
+	async function rejectedTls(options: {ca?: typeof ca; servername?: string}) {
+		return new Promise((resolve, reject) => {
+			const request = get(`${address}/api/health`, {...options, rejectUnauthorized: true}, response => {
+				response.resume();
+				resolve(response.statusCode);
+			});
+			request.setTimeout(5000, () => request.destroy(new Error('TLS rejection check timed out')));
+			request.on('error', reject);
+		});
+	}
+
+	// eslint-disable-next-line unicorn/prefer-top-level-await -- Pass the rejection to assert, rather than throwing it outside the assertion.
+	await assert.rejects(rejectedTls({}), /self.signed/i);
+	// eslint-disable-next-line unicorn/prefer-top-level-await -- The second check deliberately fails hostname verification.
+	await assert.rejects(rejectedTls({ca, servername: 'wrong.invalid'}), {code: 'ERR_TLS_CERT_ALTNAME_INVALID'});
+	const creation = await app.inject({method: 'POST', url: '/api/sessions', payload: {mode: 'fixture'}});
+	const {session, listenerId} = listenerSessionSchema.parse(creation.json());
+	const play = await app.inject({method: 'POST', url: `/api/sessions/${session.id}/play`, payload: {listenerId}});
+	assert.equal(play.statusCode, 200);
+	let recorderExit = 0;
+	try {
+		await promisify(execFile)(process.execPath, [
+			'--import',
+			'tsx',
+			path.join(repositoryRoot, 'apps/server/src/cli/soak-record.ts'),
+			'--session',
+			session.id,
+			'--url',
+			address,
+			'--hours',
+			'0.004',
+			'--interval',
+			'5',
+			'--device',
+			'Automated HTTPS recorder check; no physical device',
+		], {
+			cwd: path.join(repositoryRoot, 'apps/server'), timeout: 30_000, maxBuffer: 64 * 1024,
+			env: {...process.env, DATA_DIR: directory, NODE_EXTRA_CA_CERTS: certificate},
+		});
+	} catch (error) {
+		if ((error as {code?: unknown}).code !== 2) {
+			throw error;
+		}
+
+		recorderExit = 2;
+	}
+
+	assert.equal(recorderExit, 2, 'Recorder should flag the deliberately unconsumed session');
+	const runs = await readdir(path.join(directory, 'soaks'));
+	assert.equal(runs.length, 1);
+	const summary = JSON.parse(await readFile(path.join(directory, 'soaks', runs[0]!, 'summary.json'), 'utf8')) as {
+		outcome: string; completeSamples: number; samples: number; issues: Record<string, unknown>;
+	};
+	assert.equal(summary.outcome, 'completed');
+	assert.ok(summary.samples >= 3);
+	assert.equal(summary.completeSamples, summary.samples);
+	assert.ok(summary.issues['playback-interrupted']);
+	const debug = await app.inject(`/api/debug/sessions/${session.id}`);
+	assert.equal(debug.json<{producerPid: number | undefined}>().producerPid, null);
+	assert.equal(debug.json<{listeners: Array<{state: string}>}>().listeners[0]?.state, 'expired');
+	console.log('PASS: verified HTTPS; untrusted/mismatched certificates rejected; recorder trusts only its configured CA and observes watchdog expiry without renewing demand.');
 } finally {
 	await app?.close();
 	await rm(directory, {recursive: true, force: true});

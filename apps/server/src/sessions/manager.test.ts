@@ -363,6 +363,43 @@ it('validates HTTP contracts and IDs, serves uncached HLS, and rejects traversal
 	}
 });
 
+it('rejects malformed HTTP bodies and pagination without starting work or changing listener demand', async () => {
+	const {manager, config, store, factory, advance} = await setup();
+	const app = await buildApp({config, sessions: manager});
+	try {
+		const invalidCreations = [
+			{mode: 'shell'},
+			{mode: 'ambience', prompt: ''},
+			{mode: 'ambience', prompt: 'x'.repeat(4001)},
+			{mode: 'ambience', sleepMode: 'true'},
+			{mode: 'fixture', seed: 123},
+		];
+		const rejected = await Promise.all(invalidCreations.map(async payload => app.inject({method: 'POST', url: '/api/sessions', payload})));
+		expect(rejected.map(response => response.statusCode)).toEqual(invalidCreations.map(() => 400));
+		const oversized = await app.inject({method: 'POST', url: '/api/sessions', payload: {mode: 'ambience', prompt: 'x'.repeat(17_000)}});
+		expect(oversized.statusCode).toBe(413);
+		expect(store.loadSessions()).toHaveLength(0);
+		expect(factory).not.toHaveBeenCalled();
+		const {session, listenerId} = manager.create();
+		await manager.play(session.id, listenerId);
+		advance(89_000);
+		const levels = await Promise.all([-1, 151, 1.5, '50', null].map(async volumePercent => app.inject({
+			method: 'POST', url: `/api/sessions/${session.id}/level`, payload: {listenerId, volumePercent},
+		})));
+		expect(levels.map(response => response.statusCode)).toEqual([400, 400, 400, 400, 400]);
+		const queries = await Promise.all(['limit=1000', 'offset=-1', 'offset=100000000', 'file=../../.env'].map(async query => app.inject(`/api/debug/assets?${query}`)));
+		expect(queries.map(response => response.statusCode)).toEqual([400, 400, 400, 400]);
+		const extra = await app.inject({method: 'POST', url: `/api/sessions/${session.id}/level`, payload: {listenerId, volumePercent: 50, command: 'quit'}});
+		expect(extra.statusCode).toBe(400);
+		advance(1001);
+		await manager.sweep();
+		expect(manager.get(session.id)).toMatchObject({volumePercent: 100, status: 'idle'});
+		expect(manager.debug(session.id).listeners[0]?.state).toBe('expired');
+	} finally {
+		await app.close();
+	}
+});
+
 it('recovers session identity, listener controls, elapsed time, and HLS after normal restart', async () => {
 	const {manager, config, factory, advance, now} = await setup();
 	const {session, listenerId} = manager.create();

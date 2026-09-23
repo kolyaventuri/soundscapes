@@ -23,7 +23,8 @@
     "sound:smoke": "node --import tsx src/cli/sound-smoke.ts",
     "audio:phase4": "node --import tsx src/cli/phase4-smoke.ts",
     "lan:smoke": "node --import tsx src/cli/https-smoke.ts",
-    "audio:level": "node --import tsx src/cli/level-smoke.ts"
+    "audio:level": "node --import tsx src/cli/level-smoke.ts",
+    "acceptance:run": "node --import tsx src/cli/acceptance.ts"
   },
   "dependencies": {
     "@fastify/static": "^10.1.4",
