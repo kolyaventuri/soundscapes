@@ -9,6 +9,7 @@
 - Run natively first. Docker/OrbStack is available if a concrete runtime need arises; model runtimes and GPU access must be evaluated on the actual host before selecting a worker deployment.
 - Prefer native Safari HLS through an HTML audio element. Keep the UI and API on one origin. Make Media Session controls part of early transport validation.
 - Freeze simulated time while idle. Keep event timing in software, validate model proposals, and keep ambience independent of inference.
+- Phase 3 and later development may proceed while the multi-hour soak is pending. Do not mark long-run acceptance or v0.1 complete until measured multi-hour playback and the final eight-hour physical-device gate pass. A fixture-only soak does not validate later model/event integration.
 - Keep AI behind replaceable local adapters. Do not select/download models or build AI integration before the transport/lifecycle gate passes.
 - No accounts, cloud AI, WAN deployment, synchronized multiplayer, native mobile app, microphone input, music generation, or vector database in v0.1 (spec §3).
 
@@ -85,7 +86,7 @@ Exit: an unattended, persistent ambient stream works without any AI dependency.
 
 ## Phase 3 — Event scheduling and local LLM planning
 
-Spec: §8, §12–15, §19, §28–29, §34–35, §43–45, milestone 4 in §46. Depends on the physical-device gate and stable ambience.
+Spec: §8, §12–15, §19, §28–29, §34–35, §43–45, milestone 4 in §46. Initial physical transport and short ambience checks permit development; deferred long-run acceptance remains a completion gate.
 
 - [ ] Select and document a local LLM runtime/model after measuring host compatibility, resource use, licensing, setup, and latency; define adapter timeouts/cancellation.
 - [ ] Parse arbitrary prompts into a schema-validated scene; preserve the original prompt and expose clear initialization errors.
@@ -136,6 +137,7 @@ Spec: §2, §21, §25–29, §41, §45, §47, §51.
 - [ ] Exercise request/model schemas, ID/path traversal rejection, bounded input/output sizes, subprocess argument safety, and trusted-LAN-only configuration.
 - [ ] Run the Central Park 1932 example end to end using real local models and four generated beds; record readiness time and steady-state inference/resource use.
 - [ ] Verify irregular subtle events, valid null decisions, generated/reused assets, future mixing, and ambience continuing through event failures.
+- [ ] Before the unattended soak, add a read-only recorder with bounded local logs: sample debug state, Node/FFmpeg CPU and memory, and HLS/PCM counts and bytes every 30–60 seconds; retain lifecycle/errors and a run manifest with revision, configuration, device details, and timestamps. Flag low buffers, stalled progress, unexpected idle/errors, missing samples, and growing retention; summarize the run without treating server consumption as proof of audible playback. Monitoring must not renew listener activity. Use a fixed production build and prevent host sleep during the run.
 - [ ] Complete at least one **eight-hour physical iPhone run** with locked screen and Bluetooth sleep buds; record stalls, listening observations, buffer levels, memory/disk/CPU/GPU trends, and retained segment counts.
 - [ ] Verify lock-screen pause and stream-loss idle separately, no unnecessary inference/rendering while idle, and resume without regenerating the world.
 - [ ] Inspect peak/transient analysis and listen to representative generated output/transitions. Do not equate a numeric limiter check with perceptual comfort.

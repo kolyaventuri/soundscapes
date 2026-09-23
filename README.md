@@ -127,7 +127,7 @@ Runtime files live under ignored `data/` and `models/` directories. Do not commi
 
 ## Next milestone and prerequisites
 
-Finish Phase 2 acceptance: listen through multiple bed transitions, run several hours with resource measurements, and repeat locked-screen iPhone/Bluetooth/pause/reconnect checks with the new mixer. Phase 1 device evidence remains valid for that earlier build. Event planning comes after stable ambience; configurable volume remains a later UX item.
+Phase 3 event-planning development can proceed after the successful short iPhone ambience/crossfade/pause/resume check. Several-hour resource measurements and the remaining locked-screen/Bluetooth/disconnect/reconnect checks with the mixer remain open. Before unattended testing, add the soak recorder tracked in PLAN.md. Do not call v0.1 complete until long-run acceptance passes, including the final eight-hour physical-device run with the integrated application. Configurable volume remains a later UX item.
 
 - **PWA foundation only:** a manifest and SVG icon exist; install icons, service-worker behavior, and on-device installation remain in the plan. LAN HTTP does not provide the secure context needed by service workers; decide and document local HTTPS when implementing that layer. See [MDN's service-worker prerequisites](https://developer.mozilla.org/en-US/docs/Web/API/Service_Worker_API/Using_Service_Workers).
 - **Models:** validate hardware, license, available durations, and generation speed before choosing a sound worker. A short-effects model must not be assumed to produce a 90-second ambient bed.
