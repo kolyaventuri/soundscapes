@@ -1,8 +1,8 @@
 # Soundscapes
 
-A local procedural soundscape generator for sleep. The intended system combines reusable ambient beds, sparse locally planned/generated events, and continuous HLS playback on an iPhone.
+A local procedural generator for environmental and diegetic soundscapes, with optional sleep mode. The intended system combines reusable ambient beds, sparse locally planned/generated events, and continuous HLS playback on an iPhone.
 
-**Current state: Phase 4 local sound generation.** Ollama parses a setting; Stable Audio 3 Small-SFX creates four contextual 90-second beds and optional sparse events. Validated assets feed continuous AAC/HLS playback and persist in SQLite/filesystem storage for reuse. Existing Phase 3 sessions retain their procedural beds; create a new prompted scene to hear generated audio. Physical listening and multi-hour/eight-hour acceptance remain open. [SPEC.md](SPEC.md) defines v0.1; [PLAN.md](PLAN.md) tracks implementation and acceptance evidence separately.
+**Current state: Phase 4 local sound generation.** Ollama parses a setting; Stable Audio 3 Medium (MLX on this Mac) creates four contextual 90-second beds and optional sparse events. Validated assets feed continuous AAC/HLS playback and persist in SQLite/filesystem storage for reuse. Existing Phase 3 sessions retain their procedural beds; create a new prompted scene to hear generated audio. Physical listening and multi-hour/eight-hour acceptance remain open. [SPEC.md](SPEC.md) defines v0.1; [PLAN.md](PLAN.md) tracks implementation and acceptance evidence separately.
 
 ## Run locally
 
@@ -110,7 +110,9 @@ Categories are `wind`, `leaves`, `water`, `insects`, `distant-footsteps`, and `d
 
 ## Install the local sound model
 
-**Powered by Stability AI.** The official [Stable Audio 3 Small-SFX model](https://huggingface.co/stabilityai/stable-audio-3-small-sfx) supports up to 120 seconds of 44.1 kHz stereo output. We generate each 90-second bed directly, with a different seed, using the pinned [official runtime](https://github.com/Stability-AI/stable-audio-3) in an isolated Python 3.12 environment. CPU is the measured default on this Apple M4/24 GiB Mac; MPS is configurable but not benchmarked here. No Docker is needed.
+**Powered by Stability AI.** This Mac uses **Stable Audio 3 Medium through the official [MLX runtime](https://github.com/Stability-AI/stable-audio-3/tree/main/optimized/mlx)**. These are Stability's experimental hardware-optimized checkpoints, pinned separately from the standard PyTorch models. Medium handles both music and sound effects; Small-Music specializes in music and Small-SFX in effects. The application still requests four independently seeded 90-second beds, at 44.1 kHz stereo. No Docker is needed.
+
+The scene planner now preserves distinctive audible sources, perspective, crowd activity and requested music in `scene.audioPrompt`. Exclusions are extracted from the original user text rather than accepted from Qwen: a live check caught Qwen turning requested jazz/crowds into contradictory bans. Ordinary scenes have `sleepMode: false`; explicitly ask for sleep if desired. Eight inference steps remain the upstream default. The old blanket music/voice bans and generic texture-first prompts are removed. A larger model does not guarantee recognizable results: compare representative clips by listening. Independently generated musical beds are not synchronized in key, tempo or phrasing.
 
 Accept access to the official Hugging Face repository yourself, then add a read-access `HF_TOKEN` to the ignored root `.env`. Access includes the Stability Community License and Gemma terms; copies and attribution are in [third_party/stable-audio-3](third_party/stable-audio-3). Do not put the token in browser variables or commit it.
 
@@ -120,13 +122,30 @@ From the repository root:
 brew install uv
 UV_PYTHON_INSTALL_DIR="$PWD/models/python" UV_CACHE_DIR="$PWD/models/uv-cache" uv venv --python 3.12 models/sound-runtime
 UV_CACHE_DIR="$PWD/models/uv-cache" uv pip install --python models/sound-runtime/bin/python -r workers/sound/requirements.txt
+# In .env on Apple Silicon: SOUND_MODEL=medium and SOUND_DEVICE=mlx
 pnpm sound:setup
 pnpm sound:smoke
-# Optional full model/processing/reuse check, roughly one minute on the measured Mac:
+# Optional full model/processing/reuse check (four 90-second beds):
 pnpm sound:smoke --scene
 ```
 
-This host already has the runtime and weights installed. The download command saves an exact model revision in `models/stable-audio-3-small-sfx/manifest.json`; the installed revision is `ae12755283df9d62ca39a9b050a39a0b607b8c20`. The runtime is pinned at `779434a908193105335fd8d833418603625b2859`, with Python dependencies locked in `workers/sound/requirements.txt`. Installed model files occupy about 3.3 GiB and the Python environment about 548 MiB, excluding installer caches. Setup is the only online step; the token is unnecessary for playback and is not passed to the sound worker.
+This host has Medium MLX and the original Small-SFX installed. Set `SOUND_MODEL=medium` and `SOUND_DEVICE=mlx` in the ignored root `.env`, then run the same Ollama command and `pnpm dev`. Model manifests default to `models/stable-audio-3-<model>-mlx/manifest.json` for MLX or `models/stable-audio-3-<model>/manifest.json` for PyTorch. Avoid a stale `SOUND_MODEL_MANIFEST` override when switching models.
+
+Medium's optimized weights are pinned at `da6edc54ddba10bfd79a077102ded687f80e882b`; runtime source is pinned at `779434a908193105335fd8d833418603625b2859`. Setup downloads only the text encoder, selected diffusion model and decoder (about 4.8 GiB for Medium including its local source snapshot); the unused audio encoder is omitted. Python dependencies are locked in `workers/sound/requirements.txt`. Setup is the only online step; credentials are not passed to inference.
+
+Alternative configurations (restart the server and create a **new** scene):
+
+```sh
+# Original installed SFX model:
+SOUND_MODEL=small-sfx SOUND_DEVICE=cpu pnpm dev
+# Install/select the lightweight music model if desired:
+SOUND_MODEL=small-music SOUND_DEVICE=mlx pnpm sound:setup
+SOUND_MODEL=small-music SOUND_DEVICE=mlx pnpm dev
+# Direct prompt experiment, independent of Qwen:
+pnpm sound:smoke --bed --prompt "Field recording in a cafe, cups clinking, indistinct conversation, soft jazz piano in the room."
+```
+
+`pnpm sound:smoke --scene --prompt "..."` also exercises Qwen and four validated beds. Model identity, revision, backend and exact generation prompt participate in cache keys; new scenes cannot silently reuse the earlier sleep-texture profile. Existing sessions keep their own assets.
 
 The worker uses local model/tokenizer paths, Hugging Face offline settings and disabled Python socket connections. Real 12-second and 90-second generation succeeded in that mode. There is no cloud fallback. Ollama remains a separate loopback-only service with cloud disabled. The protocol uses bounded JSON lines over child-process pipes; cancellation, timeout, malformed responses and crashes terminate/reap the worker before dispatching another request. If its Node parent dies, a worker watchdog exits as well.
 
@@ -134,17 +153,22 @@ The worker uses local model/tokenizer paths, Hugging Face offline settings and d
 | --- | --- | --- |
 | `SOUND_ENABLED` | `true` | Generate audio for new prompted scenes; `false` selects the Phase 3 fixture path. |
 | `SOUND_PYTHON` | `models/sound-runtime/bin/python` | Isolated worker interpreter. |
-| `SOUND_MODEL_MANIFEST` | `models/stable-audio-3-small-sfx/manifest.json` | Installed revision/local weights. |
-| `SOUND_DEVICE` | `cpu` | `cpu` or `mps`; CPU is verified here. |
+| `SOUND_MODEL` | `small-sfx` (this Mac: `medium` in `.env`) | `small-sfx`, `small-music`, or `medium`. |
+| `SOUND_MODEL_MANIFEST` | derived from model/device | Installed revision/local weights; usually leave unset. |
+| `SOUND_DEVICE` | `cpu` (this Mac: `mlx` in `.env`) | `cpu`/`mps` for PyTorch, `mlx` for Apple Silicon. |
 | `SOUND_TIMEOUT_SECONDS` | `300` | Per-job inference deadline, including load/queue wait (5–1800 seconds). |
 | `SOUND_IDLE_UNLOAD_SECONDS` | `1800` | Retain a model after a completed job for up to 30 minutes; `0` unloads immediately. |
 | `HF_TOKEN` | unset | Used only by `sound:setup`, after access acceptance. |
 
-The initial CPU measurement generated 90 seconds in **17.4 seconds**, including **4.5 seconds** of model load, at **4.88 GiB peak worker RSS**. Four subsequent 90-second beds took 17.8/12.9/12.5/12.8 seconds of generation (about 56 seconds total), plus normalization/buffering; a 12-second event took 7.6 seconds including load. Cold first-time library loading was slower (21.5 seconds for the first 12-second clip). These are local samples, not speed guarantees or total host memory. Evidence lives under ignored `data/sound-checks/` and `data/phase4-real/evidence.json`.
+Medium MLX generated a 12-second cafe clip in **13.6 seconds**, with **3.69 GiB peak Metal allocation** reported separately from process RSS. Four 90-second beds took **168 seconds** including validation; individual generations took **34–47 seconds**, with peak Metal allocation **4.66 GiB**, while other verification work was running. A 12-second event took **7.7 seconds**. A subsequent cafe run with Qwen and Medium in sequence prepared all four beds in **114 seconds** plus scene parsing (26–30 seconds inference per bed). These are spot measurements, not unattended-run acceptance. Avoid simultaneous Qwen/Medium benchmark runs on this Mac: one 45-second planner request timed out under GPU contention.
+
+The original Small-SFX CPU measurement generated 90 seconds in **17.4 seconds**, including **4.5 seconds** of model load, at **4.88 GiB peak worker RSS**. Four subsequent 90-second beds took 17.8/12.9/12.5/12.8 seconds of generation (about 56 seconds total), plus normalization/buffering; a 12-second event took 7.6 seconds including load. Cold first-time library loading was slower (21.5 seconds for the first 12-second clip). These are local samples, not speed guarantees or total host memory. Evidence lives under ignored `data/sound-checks/` and `data/phase4-real/evidence.json`.
 
 One global queue admits at most eight sound jobs, runs one at a time, and prioritizes waiting ambience over optional events. A scene searches validated assets with the same normalized original description and bed variant before generating. Event reuse uses the exact scene/event/category/duration; broader semantic matching remains Phase 5. Four beds are required for a new generated scene, followed by the normal 90-second PCM buffer. Startup shows scene/bed/buffering progress and fails visibly if no valid pool can be built; it does not silently substitute air noise. Already prepared beds can be reused on a retry.
 
 Outputs stay in quarantine until file/path/size, full decode, duration, stereo/44.1 kHz format, finite samples, RMS, peaks and crest limits pass. Accepted WAVs become managed 16-bit PCM and their model revision, seed, prompt, scene key and validation profile are stored in SQLite. Beds target −36 dBFS RMS; events target −40 dBFS RMS with lower peak headroom. Generated sounds are **not marked as human-reviewed**. Numeric checks cannot detect unwanted speech or establish contextual plausibility; listening on the intended device remains required.
+
+Worker progress now streams to the server terminal with a `[sound-worker]` prefix. There is no persistent worker log file; capture terminal output if desired. MLX releases text-encoder, diffusion and decoder weights between stages and after each job; `soundWorker.loaded` is therefore false while its idle process can remain alive. The idle timeout still reaps that process. PyTorch retains its loaded model until the idle timeout.
 
 Optional event preparation has a 90-second total budget and a fixed latest playback slot. Failed, late or cancelled requests are skipped while the existing beds keep streaming. Pause, watchdog idle, Stop and shutdown cancel pending work; an idle model may remain resident, but no new inference is dispatched. Restart removes unfinished quarantine output and keeps validated assets/session metadata. `sound:smoke` writes into its own diagnostic directory, separate from active playback.
 

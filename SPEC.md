@@ -1,9 +1,12 @@
-# Procedural Generative Sleep Soundscape
+# Procedural Generative Soundscape
 
 ## Prototype Technical Specification
 
 **Status:** Prototype / v0.1
 **Primary use case:** Locally hosted, indefinitely running, AI-assisted environmental soundscapes streamed over a LAN to an iPhone or other browser-based client.
+
+**2026-09-23 scope clarification:** Recognizable scenes take priority over noise masking. Preserve requested music, instruments, crowds and activity throughout planning and generation. New scenes default to ordinary environmental audio; use sleep mode only when explicitly requested. Later sleep-specific examples/restrictions apply to that optional mode. Existing scene assets remain unchanged; model/prompt-profile changes invalidate reuse for new generation. The four-bed crossfade architecture does not yet maintain musical key, tempo or phrase continuity across independently generated beds.
+
 
 ---
 
@@ -28,7 +31,7 @@ The application should not continuously synthesize every second of audio. Instea
 9. Stream the resulting audio to clients over HLS.
 10. Stop generating when no client is actively consuming the stream.
 
-The system should be optimized for **sleep audio**, meaning low novelty, low volume variance, long periods of uneventful ambience, and avoidance of sudden or startling sounds.
+The system should create **recognizable environmental and diegetic audio**: the characteristic sources, activity, perspective and acoustics of the requested place. Requested music and indistinct crowd conversation are part of the scene. Sleep is an optional use case, not the default interpretation of every prompt. When explicitly requested, sleep mode favors low novelty, gentle dynamics and fewer startling sounds.
 
 The system should be designed so that it can eventually support other modes, such as historical environments, fantasy environments, sci-fi scenes, nature soundscapes, or interactive ambient installations.
 
@@ -72,7 +75,7 @@ Do not attempt to implement:
 * fully simulated NPC populations;
 * historically authoritative reconstruction;
 * mobile-native applications;
-* automated music generation;
+* full song composition, intelligible generated dialogue/lyrics, or beat-synchronized musical transitions;
 * sophisticated semantic vector search unless needed;
 * persistent distributed model serving.
 
@@ -122,7 +125,7 @@ Avoid implementing DSP from scratch for the prototype.
 
 Primary target:
 
-**Stable Audio 3 Small-SFX**, or equivalent local sound-effects model.
+**Stable Audio 3 Medium through the official Apple Silicon MLX runtime** on this Mac, with Small-SFX and Small-Music as selectable alternatives. Standard PyTorch Small-SFX remains supported. Models must be measured locally before selecting them; numeric validation does not establish perceptual quality.
 
 The sound generator should be hidden behind an interface so another model can be substituted later.
 
