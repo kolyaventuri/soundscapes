@@ -54,4 +54,12 @@ a { color: #cbd8b7; }
 .scene-summary dl { display: grid; grid-template-columns: auto 1fr; column-gap: 20px; row-gap: 8px; }
 .scene-summary dt { color: #9bafa7; }
 .scene-summary dd { margin: 0; overflow-wrap: anywhere; }
+.sleep-mode { display: grid; grid-template-columns: 22px 1fr; gap: 8px; align-items: center; margin-top: 18px; font-size: 14px; }
+.sleep-mode input { width: 18px; height: 18px; accent-color: #cbd8b7; margin: 0; }
+.sleep-mode span { grid-column: 2; color: #aebfb5; font-size: 12px; line-height: 1.5; }
+.stream-level { margin-top: 20px; padding-top: 20px; border-top: 1px solid #516b62; }
+.stream-level label { display: block; font-size: 14px; }
+.stream-level output { float: right; color: #cbd8b7; }
+.stream-level input { display: block; width: 100%; min-height: 36px; margin: 8px 0; accent-color: #cbd8b7; }
+.stream-level p { color: #aebfb5; font-size: 12px; line-height: 1.6; }
 @media (max-width: 480px) { section { padding: 40px 0; } h1 { font-size: 48px; } .phase-label { display: none; } }

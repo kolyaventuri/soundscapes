@@ -14,9 +14,11 @@ export type HealthResponse = z.infer<typeof healthResponseSchema>;
 export const healthResponseJsonSchema = z.toJSONSchema(healthResponseSchema, {target: 'draft-7'});
 
 export const sessionStatusSchema = z.enum(['initializing', 'active', 'idle', 'stopped', 'error']);
-export const createSessionSchema = z.strictObject({mode: z.enum(['fixture', 'ambience']), prompt: z.string().trim().min(1).max(4000).optional()});
+export const createSessionSchema = z.strictObject({mode: z.enum(['fixture', 'ambience']), prompt: z.string().trim().min(1).max(4000).optional(), sleepMode: z.boolean().optional()});
 export const sessionIdSchema = z.uuid();
 export const listenerControlSchema = z.strictObject({listenerId: z.uuid()});
+export const volumePercentSchema = z.number().int().min(0).max(150);
+export const volumeControlSchema = listenerControlSchema.extend({volumePercent: volumePercentSchema});
 export const preparationProgressSchema = z.object({
 	stage: z.enum(['understanding', 'checking', 'queued', 'loading', 'generating', 'decoding', 'validating', 'buffering', 'ready']),
 	elapsedMs: z.number().nonnegative(), stageElapsedMs: z.number().nonnegative(),
@@ -33,6 +35,8 @@ export const sessionSchema = z.object({
 	status: sessionStatusSchema,
 	audioSource: z.enum(['fixture', 'generated']).default('fixture'),
 	preparation: z.string().default(''),
+	volumePercent: volumePercentSchema.default(100),
+	recentEvents: z.array(z.object({description: z.string(), simulatedTime: z.iso.datetime()})).max(3).default([]),
 	progress: preparationProgressSchema.nullable().default(null),
 	scene: sceneSchema.nullable().default(null),
 	ready: z.boolean(),

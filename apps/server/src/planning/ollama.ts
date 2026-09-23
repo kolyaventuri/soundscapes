@@ -15,7 +15,7 @@ export class OllamaPlanner implements Planner {
 
 	constructor(private readonly config: AppConfig['planner']) {}
 
-	async parseScene(prompt: string, signal: AbortSignal): Promise<Scene> {
+	async parseScene(prompt: string, signal: AbortSignal, sleepMode?: boolean): Promise<Scene> {
 		const schema = sceneSchema.omit({originalPrompt: true, simulatedStart: true, constraints: true}).required().extend({
 			calendar: z.strictObject({
 				month: z.number().int().min(1).max(12).nullable(), day: z.number().int().min(1).max(31).nullable(),
@@ -34,15 +34,16 @@ export class OllamaPlanner implements Planner {
 			+ 'Describe music as a sound source within the setting when requested. Do not invent music/crowds if absent. No blanket bans on voices or music. '
 			+ 'Preserve explicit exclusions in audioPrompt. No instructional preamble, JSON or dates that have no audible meaning.',
 			'Light wind permits wind and leaves sounds unless the user excludes them. Description must not add facts absent from the original prompt.',
+			'If sleepModeOverride is a boolean, it is the user’s explicit mode selection and takes precedence over inferring sleep mode from the description.',
 		].join(' ');
 		const result = await this.request({
-			schema, system: instruction, input: {originalPrompt: prompt}, signal, temperature: 0,
+			schema, system: instruction, input: {originalPrompt: prompt, sleepModeOverride: sleepMode ?? null}, signal, temperature: 0,
 		});
 
 		return sceneSchema.parse({
-			...result, ...explicitCalendar(prompt, result.year), originalPrompt: prompt,
+			...result, ...explicitCalendar(prompt, result.year), originalPrompt: prompt, sleepMode: sleepMode ?? result.sleepMode,
 			allowedEventCategories: [...new Set(result.allowedEventCategories)].filter(category => !explicitlyExcluded(prompt, category)),
-			constraints: [...new Set([...(result.sleepMode ? hardConstraints : []), ...explicitSoundConstraints(prompt)])].slice(0, 16),
+			constraints: [...new Set([...((sleepMode ?? result.sleepMode) ? hardConstraints : []), ...explicitSoundConstraints(prompt)])].slice(0, 16),
 		});
 	}
 

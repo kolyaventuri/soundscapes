@@ -1,5 +1,5 @@
 import {
-	createSessionSchema, listenerControlSchema, listenerSessionSchema, sessionIdSchema, sessionSchema,
+	createSessionSchema, listenerControlSchema, listenerSessionSchema, sessionIdSchema, sessionSchema, volumeControlSchema,
 } from '@soundscapes/shared';
 import {type FastifyInstance} from 'fastify';
 import {z} from 'zod';
@@ -20,9 +20,9 @@ export function registerSessionRoutes(app: FastifyInstance, manager: SessionMana
 		schema: {querystring: jsonSchema(z.strictObject({offset: z.string().regex(/^\d{1,8}$/).optional(), limit: z.enum(['10', '25', '50', '100']).optional()}))},
 	}, async request => manager.assetsDebug(Number(request.query.offset ?? 0), Number(request.query.limit ?? 25)));
 
-	app.post<{Body: {mode: 'fixture' | 'ambience'; prompt?: string}}>('/api/sessions', {
+	app.post<{Body: {mode: 'fixture' | 'ambience'; prompt?: string; sleepMode?: boolean}}>('/api/sessions', {
 		schema: {body: jsonSchema(createSessionSchema), response: {202: listenerResponse}},
-	}, async (request, reply) => reply.code(202).send(manager.create(request.body.mode, request.body.prompt)));
+	}, async (request, reply) => reply.code(202).send(manager.create(request.body.mode, request.body.prompt, request.body.sleepMode)));
 
 	app.get<{Params: SessionParameters}>('/api/sessions/:id', {
 		schema: {params: parametersSchema, response: {200: sessionResponse}},
@@ -41,6 +41,10 @@ export function registerSessionRoutes(app: FastifyInstance, manager: SessionMana
 	app.post<{Params: SessionParameters; Body: ListenerBody}>('/api/sessions/:id/prepare', {
 		schema: {params: parametersSchema, body: controlSchema, response: {202: sessionResponse}},
 	}, async (request, reply) => reply.code(202).send(manager.resumePreparation(request.params.id, request.body.listenerId)));
+
+	app.post<{Params: SessionParameters; Body: ListenerBody & {volumePercent: number}}>('/api/sessions/:id/level', {
+		schema: {params: parametersSchema, body: jsonSchema(volumeControlSchema), response: {200: sessionResponse}},
+	}, async request => manager.setVolume(request.params.id, request.body.listenerId, request.body.volumePercent));
 
 	app.post<{Params: SessionParameters}>('/api/sessions/:id/stop', {
 		schema: {params: parametersSchema, response: {200: sessionResponse}},

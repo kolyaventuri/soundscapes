@@ -22,7 +22,7 @@ export type PlannerContext = {
 	library: LibraryEntry[]; earliestPlaybackMs: number; canGenerate?: boolean;
 };
 export type Planner = {
-	parseScene: (prompt: string, signal: AbortSignal) => Promise<Scene>;
+	parseScene: (prompt: string, signal: AbortSignal, sleepMode?: boolean) => Promise<Scene>;
 	propose: (context: PlannerContext, signal: AbortSignal) => Promise<EventProposal>;
 	readonly busy: boolean;
 };

@@ -2,7 +2,7 @@
 
 A local procedural generator for environmental and diegetic soundscapes, with optional sleep mode. The intended system combines reusable ambient beds, sparse locally planned/generated events, and continuous HLS playback on an iPhone.
 
-**Current state: Phase 5 playback UX in progress.** Ollama parses a setting; Stable Audio 3 Medium (MLX on this Mac) creates four contextual 90-second beds and optional sparse events. Validated assets feed continuous AAC/HLS playback and persist in SQLite/filesystem storage for reuse. Existing Phase 3 sessions retain their procedural beds; create a new prompted scene to hear generated audio. Physical listening and multi-hour/eight-hour acceptance remain open. [SPEC.md](SPEC.md) defines v0.1; [PLAN.md](PLAN.md) tracks implementation and acceptance evidence separately.
+**Current state: Phase 5 software implemented; device and listening acceptance pending.** Ollama parses a setting; Stable Audio 3 Medium (MLX on this Mac) creates four contextual 90-second beds and optional sparse events. Validated assets feed continuous AAC/HLS playback and persist in SQLite/filesystem storage for reuse. Existing Phase 3 sessions retain their procedural beds; create a new prompted scene to hear generated audio. Physical listening and multi-hour/eight-hour acceptance remain open. [SPEC.md](SPEC.md) defines v0.1; [PLAN.md](PLAN.md) tracks implementation and acceptance evidence separately.
 
 ## Run locally
 
@@ -60,6 +60,16 @@ Approximate time-to-play ranges use successful measurements from this server, se
 
 Reloading reads current server state. Connection failures hide stale estimates; successful polling clears the connection error. **Cancel preparation** stops the session. If preparation was paused or interrupted by a server shutdown, **Continue preparing** resumes the same session without marking its listener as playing. `POST /api/sessions/:id/prepare` accepts `{listenerId}`; status and debug polling remain read-only and never renew playback activity.
 
+## Sleep mode and scene level
+
+Select **Sleep mode** when creating a scene to request gentler dynamics while keeping requested music and crowd murmur. The checkbox is explicit: its selection takes precedence over inferring sleep intent from the description. API callers can pass optional `sleepMode` in `POST /api/sessions`; omitting it preserves prompt-based inference. This setting belongs to the created scene; existing sessions retain their mode.
+
+Use **Scene level** and **Apply level** to change the shared stream from 0–150%. The default 100% retains the earlier +12 dB test boost; 0% mutes, 50% is about 6 dB quieter, and 150% is about 3.5 dB louder before limiting. The final peak limiter remains in place. Everyone listening to the session receives the same level, and the setting survives pause/resume and server restart. Applying a setting while idle does not start rendering or renew listener activity.
+
+Changes affect future encoded frames, so you hear them after existing HLS audio drains from the player's buffer. Device volume buttons remain the immediate personal control. `POST /api/sessions/:id/level` takes `{listenerId, volumePercent}` with an integer from 0–150; the server acknowledges the encoder change before saving it. PCM and control input use separate descriptors, with FFmpeg's [bounded async input ring](https://github.com/FFmpeg/FFmpeg/blob/master/libavformat/async.c) (8 MiB) keeping commands available during streamed input. Already committed PCM and published segments are never rewritten.
+
+The optional **Recent sounds** disclosure shows up to three events whose scheduled playback time has begun. It follows the server scene clock, so a device playing buffered audio may hear them later.
+
 ## Configuration
 
 Defaults work without an environment file. To customize, copy `.env.example` to `.env` at the repository root. The server loads that file in development and production; existing shell variables take precedence. Vite reads the same root environment for its proxy. Never put secrets in `VITE_*` variables, which are exposed to the client.
@@ -107,7 +117,7 @@ pnpm dev
 
 The pull command talks to the running server; its `OLLAMA_MODELS` determines storage. These commands deliberately disable Ollama cloud features. Use only downloaded local models. There is no hosted-provider fallback. Stop the app and runtime with Ctrl-C after testing. Existing blank-prompt sessions continue to work with no Ollama server.
 
-Enter a scene such as **“Central Park, New York City, October 1932, around 1 AM. Cool autumn night, light wind, no rain. Sparse distant activity. Intended for sleep.”** Choose **Prepare scene**, wait for preparation, then tap Play. The original description and validated scene are visible at `/api/debug/sessions/<id>`. Missing runtime/model and invalid scene responses produce a visible initialization error. Explicit English month names with numeric days, ISO dates and numeric AM/PM or 24-hour times are read from the original prompt; unmentioned calendar fields cannot be supplied by the model. Unspecified calendar components default to January 1, year 2000, 01:00; explicitly supplied parts take precedence. Scene-local wall time is represented in UTC, without a timezone conversion. New scenes generate four contextual beds before becoming ready. `SOUND_ENABLED=false` explicitly selects the older air-bed/planner test path.
+Enter a scene such as **“Central Park, New York City, October 1932, around 1 AM. Cool autumn night, light wind, no rain. Sparse distant activity. Intended for sleep.”** Select **Sleep mode** for this sleep-oriented example, choose **Prepare scene**, wait for preparation, then tap Play. The original description and validated scene are visible at `/api/debug/sessions/<id>`. Missing runtime/model and invalid scene responses produce a visible initialization error. Explicit English month names with numeric days, ISO dates and numeric AM/PM or 24-hour times are read from the original prompt; unmentioned calendar fields cannot be supplied by the model. Unspecified calendar components default to January 1, year 2000, 01:00; explicitly supplied parts take precedence. Scene-local wall time is represented in UTC, without a timezone conversion. New scenes generate four contextual beds before becoming ready. `SOUND_ENABLED=false` explicitly selects the older air-bed/planner test path.
 
 For a quick development check, use `EVENT_DELAY_SCALE=0.05 EVENT_SKIP_PROBABILITY=0 pnpm dev` to accelerate opportunities 20×. Events still enter future audio, so allow a couple of minutes after a proposal. Repeat suppression remains 30 minutes per asset; with only the synthetic breeze, later proposals will usually be null. Use default timing for sparse-activity listening and unattended acceptance.
 
@@ -236,6 +246,7 @@ pnpm check       # XO, strict type checks, Vitest, production build
 pnpm lint:fix    # Apply XO's automatic fixes
 pnpm test:watch  # Interactive Vitest
 pnpm audio:smoke # Real FFmpeg AAC/HLS encode, probe, and decode
+pnpm audio:level # Live 50%/150%/mute checks on both file and streamed PCM inputs
 pnpm audio:integration # Original fixture HTTP/lifecycle regression
 pnpm audio:mixer # Crossfade/event PCM continuity, optional failure, fractional resume
 pnpm audio:phase2 # Ambience HTTP playback, buffers, lifecycle, and restart
@@ -315,15 +326,14 @@ PLAN.md            Ordered checklists, release gates, and verification evidence
 SPEC.md            Full product specification
 ```
 
-Keep the app factory free of listening side effects so tests can use Fastify injection; close it to release session resources. Keep Node/filesystem/model dependencies out of the shared package. Keep mixing in `ambience/`, encoding in `audio/`, registration in `assets/`, and SQLite access in `persistence/`. Local planning adapters live in `planning/`; sound-generation adapters come later.
+Keep the app factory free of listening side effects so tests can use Fastify injection; close it to release session resources. Keep Node/filesystem/model dependencies out of the shared package. Keep mixing in `ambience/`, encoding in `audio/`, registration in `assets/`, and SQLite access in `persistence/`. Local planning adapters live in `planning/`; local sound-generation adapters live in `generation/`.
 
 Runtime files live under ignored `data/` and `models/` directories. Do not commit generated audio, model weights, SQLite databases, HLS segments, local environment files, or logs.
 
-## Next milestone and prerequisites
+## Next milestone and acceptance
 
-Phase 3 implementation and automated checks are in place; contextual event listening is still pending. Phase 4 sound-generation work can proceed while that acceptance is collected. Several-hour resource measurements and the remaining locked-screen/Bluetooth/disconnect/reconnect checks with the mixer remain open; use the soak recorder above. Do not call v0.1 complete until long-run acceptance passes, including the final eight-hour physical-device run with the integrated application. Configurable volume remains a later UX item.
+Phase 5 software covers measured preparation feedback, reuse scoring, explicit sleep mode, persistent stream level, scene/weather/clock/recent-event display, and an installable app shell with optional local HTTPS. Phase 6 is integrated acceptance: listen to representative nature/crowd/music scenes, check repeated scenes for useful reuse, and verify preparation, level changes, Bonjour/HTTPS and home-screen playback on the physical iPhone.
 
-- **PWA foundation only:** a manifest and SVG icon exist; install icons, service-worker behavior, and on-device installation remain in the plan. LAN HTTP does not provide the secure context needed by service workers; decide and document local HTTPS when implementing that layer. See [MDN's service-worker prerequisites](https://developer.mozilla.org/en-US/docs/Web/API/Service_Worker_API/Using_Service_Workers).
-- **Models:** validate hardware, license, available durations, and generation speed before choosing a sound worker. A short-effects model must not be assumed to produce a 90-second ambient bed.
+Use the soak recorder above for measured multi-hour playback. v0.1 still requires the final eight-hour physical-device run with locked screen and Bluetooth sleep buds, plus recovery and resource checks recorded in [PLAN.md](PLAN.md). Automated tests and desktop browser playback do not close those gates.
 
-Docker/OrbStack can be introduced if a worker or deployment needs it. The planner uses native Ollama; the sound-generation worker/runtime remains to be selected.
+Native Ollama and the installed Medium MLX worker remain the development setup. Docker/OrbStack is unnecessary for the current runtime. Advanced independent audio layers remain deferred and do not block v0.1.

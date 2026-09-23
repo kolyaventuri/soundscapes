@@ -6,7 +6,7 @@ import path from 'node:path';
 import {performance} from 'node:perf_hooks';
 import {z} from 'zod';
 import {
-	sceneSchema, type ListenerSession, type Session, type SessionStatus,
+	sceneSchema, volumePercentSchema, type ListenerSession, type Session, type SessionStatus,
 } from '@soundscapes/shared';
 import {
 	playlistSegments, segmentNamePattern, startRenderer, type Renderer, type RendererFactory,
@@ -57,6 +57,8 @@ type Record = {
 	generationEnabled: boolean;
 	preparation: string;
 	progress: Preparation | undefined;
+	volumePercent: number;
+	requestedSleepMode: boolean | undefined;
 	sceneReady: boolean;
 	planning: PlanningState;
 	scheduledEvents: ScheduledEvent[];
@@ -72,6 +74,7 @@ const savedSchema = z.object({
 	listeners: z.array(z.tuple([z.uuid(), z.object({state: z.enum(['playing', 'paused', 'expired']), lastConsumptionAt: z.number()})])).max(16),
 	runs: z.array(z.uuid()).max(2), currentRun: z.uuid().optional(),
 	generationEnabled: z.boolean().default(false), preparation: z.string().default(''),
+	volumePercent: volumePercentSchema.default(100), requestedSleepMode: z.boolean().optional(),
 	planningEnabled: z.boolean().default(false), sceneReady: z.boolean().default(true),
 	planning: planningStateSchema.default({nextOpportunityMs: null, opportunities: 0, skipped: 0}),
 	scheduledEvents: z.array(scheduledEventSchema).max(32).default([]),
@@ -136,7 +139,7 @@ export class SessionManager {
 			const saved = savedSchema.parse(value);
 			const session: Record = {
 				...saved, status: saved.status === 'stopped' || saved.status === 'error' ? saved.status : 'idle',
-				eventAssets: [], controller: undefined, initialization: undefined, progress: undefined,
+				eventAssets: [], controller: undefined, initialization: undefined, progress: undefined, requestedSleepMode: saved.requestedSleepMode,
 				error: saved.error, activeSince: undefined, renderer: undefined, pending: Promise.resolve(), currentRun: saved.currentRun,
 				listeners: new Map(saved.listeners.map(([id, listener]) => [id, {...listener, state: listener.state === 'playing' ? 'expired' : listener.state}])),
 				runs: new Map(saved.runs.map(id => [id, path.join(this.directory(saved.id), 'hls', id)])),
@@ -153,7 +156,7 @@ export class SessionManager {
 		}
 	}
 
-	create(mode: 'fixture' | 'ambience' = 'fixture', prompt?: string): ListenerSession {
+	create(mode: 'fixture' | 'ambience' = 'fixture', prompt?: string, requestedSleepMode?: boolean): ListenerSession {
 		if (prompt && mode !== 'ambience') {
 			throw new SessionError(400, 'Scene prompts require ambience mode');
 		}
@@ -177,6 +180,7 @@ export class SessionManager {
 			id: randomUUID(), mode, scene: {...fixtureScene, title: prompt ? 'Preparing your scene' : fixtureScene.title, originalPrompt: prompt ?? ''},
 			timeline: {seed: Math.floor(Math.random() * 0x1_00_00_00_00), beds: []}, assetIds: [],
 			generationEnabled: Boolean(prompt) && this.config.sound.enabled, preparation: '', progress: undefined,
+			volumePercent: 100, requestedSleepMode,
 			planningEnabled: Boolean(prompt), sceneReady: !prompt, planning: {nextOpportunityMs: null, opportunities: 0, skipped: 0}, scheduledEvents: [],
 			eventAssets: [], controller: undefined, initialization: prompt ? new AbortController() : undefined,
 			status: 'initializing', createdAt: this.now(), activeSince: undefined,
@@ -207,6 +211,27 @@ export class SessionManager {
 
 	get(id: string) {
 		return this.view(this.record(id));
+	}
+
+	async setVolume(id: string, listenerId: string, percent: number) {
+		const session = this.record(id);
+		const volumePercent = volumePercentSchema.parse(percent);
+		this.listener(session, listenerId);
+		return this.enqueue(session, async () => {
+			this.requireUsable(session);
+			if (session.renderer?.running) {
+				if (!session.renderer.setVolume) {
+					throw new SessionError(503, 'This renderer does not support level changes');
+				}
+
+				await session.renderer.setVolume(volumePercent);
+			}
+
+			session.volumePercent = volumePercent;
+			this.save(session);
+			this.onEvent('volume-changed', session.id, `${volumePercent}%`);
+			return this.view(session);
+		});
 	}
 
 	async assetsDebug(offset = 0, limit = 25) {
@@ -488,6 +513,7 @@ export class SessionManager {
 			id: session.id, mode: session.mode, status: session.status, createdAt: session.createdAt,
 			elapsedMs: this.elapsed(session), error: session.error, scene: session.scene, timeline: session.timeline, assetIds: session.assetIds,
 			generationEnabled: session.generationEnabled, preparation: session.preparation,
+			volumePercent: session.volumePercent, requestedSleepMode: session.requestedSleepMode,
 			planningEnabled: session.planningEnabled, sceneReady: session.sceneReady, planning: session.planning, scheduledEvents: session.scheduledEvents,
 			listeners: [...session.listeners], runs: [...session.runs.keys()].slice(-2), currentRun: session.currentRun,
 		});
@@ -563,6 +589,9 @@ export class SessionManager {
 		return {
 			id: session.id, mode: session.mode, title: session.mode === 'fixture' ? 'Quiet pink noise' : session.scene.title, status: session.status,
 			audioSource: session.generationEnabled ? 'generated' : 'fixture', preparation: session.preparation,
+			volumePercent: session.volumePercent,
+			recentEvents: session.scheduledEvents.filter(event => event.startMs <= this.elapsed(session)).slice(-3).reverse()
+				.map(event => ({description: event.description, simulatedTime: event.simulatedTime})),
 			progress: session.progress?.view(session.status === 'initializing', this.generation.queue.jobs.some(job => job.sessionId !== session.id)) ?? null,
 			scene: session.sceneReady && session.planningEnabled ? session.scene : null,
 			ready: session.currentRun !== undefined, rendering: session.renderer?.running ?? false,
@@ -630,9 +659,9 @@ export class SessionManager {
 			abort.signal.throwIfAborted();
 			if (!session.sceneReady) {
 				session.preparation = 'Understanding your scene';
-				session.progress!.begin('scene', `planner:${this.config.planner.model}:scene-v2`, 'understanding');
+				session.progress!.begin('scene', `planner:${this.config.planner.model}:scene-v3`, 'understanding');
 				const signal = AbortSignal.any([abort.signal, AbortSignal.timeout(this.config.planner.timeoutMs)]);
-				session.scene = await abortable(this.planner.parseScene(session.scene.originalPrompt, signal), signal);
+				session.scene = await abortable(this.planner.parseScene(session.scene.originalPrompt, signal, session.requestedSleepMode), signal);
 				session.sceneReady = true;
 				session.progress!.complete();
 				this.save(session);
@@ -676,7 +705,7 @@ export class SessionManager {
 		const runId = randomUUID();
 		const directory = path.join(this.directory(session.id), 'hls', runId);
 		const options = {
-			directory, runId, fixturePath: this.config.fixturePath, ffmpegPath: this.config.ffmpegPath,
+			directory, runId, fixturePath: this.config.fixturePath, ffmpegPath: this.config.ffmpegPath, volumePercent: session.volumePercent,
 			onFailure: (error: Error) => {
 				void this.rendererFailed(session, runId, error);
 			},

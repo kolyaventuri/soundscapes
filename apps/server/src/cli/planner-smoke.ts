@@ -83,9 +83,16 @@ try {
 	assert.match(cafe.audioPrompt, /piano|jazz/i);
 	assert.match(cafe.audioPrompt, /crowd|conversation|chatter|murmur/i);
 	assert.deepEqual(cafe.constraints, [], 'Do not invent exclusions for requested sources');
+	const sleepCafe = await planner.parseScene('A cafe with jazz piano and crowd murmur.', signal, true);
+	assert.equal(sleepCafe.sleepMode, true);
+	assert.match(sleepCafe.audioPrompt, /piano|jazz/i);
+	assert.match(sleepCafe.audioPrompt, /crowd|conversation|chatter|murmur/i);
+	const awakeCafe = await planner.parseScene('A cafe with jazz piano and crowd murmur, a place to fall asleep.', signal, false);
+	assert.equal(awakeCafe.sleepMode, false);
+	assert.deepEqual(awakeCafe.constraints, []);
 	const result = {
 		at: new Date().toISOString(), model: config.planner.model, sceneMs, nullMs, eventMs,
-		maximumModelBytes, maximumGpuBytes, scene, empty, proposal, generatedProposal, generationProposalMs, defaulted, cafe,
+		maximumModelBytes, maximumGpuBytes, scene, empty, proposal, generatedProposal, generationProposalMs, defaulted, cafe, sleepCafe, awakeCafe,
 		note: 'Real local model calls. Memory is sampled Ollama-reported model/VRAM allocation, not total host usage or an overnight result.',
 	};
 	const directory = path.join(config.dataDirectory, 'planner-checks');

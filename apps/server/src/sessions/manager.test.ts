@@ -41,6 +41,7 @@ async function setup(planner?: Planner) {
 			async stop() {
 				running = false;
 			},
+			setVolume: vi.fn(async () => undefined),
 		};
 		renderers.push(renderer);
 		return renderer;
@@ -75,6 +76,38 @@ it('bounds preparation, stays idle without listeners, and never treats polling a
 	await manager.sweep();
 	expect(factory).toHaveBeenCalledTimes(1);
 	expect(renderers.every(renderer => !renderer.running)).toBe(true);
+});
+
+it('persists level changes without restarting a producer or renewing listener activity', async () => {
+	const {manager, factory, renderers, advance, store} = await setup();
+	const {session, listenerId} = manager.create();
+	await manager.play(session.id, listenerId);
+	advance(89_000);
+	expect(await manager.setVolume(session.id, listenerId, 50)).toMatchObject({volumePercent: 50, status: 'active'});
+	expect(renderers.at(-1)!.setVolume).toHaveBeenCalledWith(50);
+	expect(factory).toHaveBeenCalledTimes(2);
+	advance(1001);
+	await manager.sweep();
+	expect(manager.get(session.id)).toMatchObject({status: 'idle', listenerCount: 0, volumePercent: 50});
+	await manager.setVolume(session.id, listenerId, 75);
+	expect(factory).toHaveBeenCalledTimes(2);
+	expect(store.loadSessions()[0]).toMatchObject({volumePercent: 75});
+	await expect(manager.setVolume(session.id, listenerId, 151)).rejects.toThrow();
+	await expect(manager.setVolume(session.id, randomUUID(), 20)).rejects.toThrow('Listener not found');
+	await manager.play(session.id, listenerId);
+	expect(factory.mock.calls.at(-1)![0]).toMatchObject({volumePercent: 75});
+});
+
+it('passes the explicit sleep-mode selection to scene parsing and preserves it across saved state', async () => {
+	const parseScene = vi.fn<Planner['parseScene']>(async (originalPrompt, signal, sleepMode) => sceneSchema.parse({
+		originalPrompt, title: 'Café', sleepMode: sleepMode ?? false, simulatedStart: '2000-01-01T01:00:00Z',
+	}));
+	const {manager, store} = await setup({busy: false, parseScene, propose: vi.fn()});
+	const {session, listenerId} = manager.create('ambience', 'A café with jazz', true);
+	await manager.playlist(session.id, listenerId);
+	expect(parseScene).toHaveBeenCalledWith('A café with jazz', expect.any(AbortSignal), true);
+	expect(manager.get(session.id).scene?.sleepMode).toBe(true);
+	expect(store.loadSessions()[0]).toMatchObject({requestedSleepMode: true});
 });
 
 it('reports missing assets through a bounded read-only debug API without counting usage', async () => {

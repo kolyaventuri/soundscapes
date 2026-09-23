@@ -41,9 +41,11 @@ export function estimateLabel(progress: PreparationProgress) {
 export function PreparationFeedback({
 	progress,
 	isConnected,
+	isRebuffering,
 }: {
 	readonly progress: PreparationProgress | undefined;
 	readonly isConnected: boolean;
+	readonly isRebuffering: boolean;
 }) {
 	const step = progress?.stage === 'generating' ? progress.step : null;
 	const recordings = recordingLabel(progress, isConnected);
@@ -77,7 +79,11 @@ export function PreparationFeedback({
 					? ' · Approximate, based on completed work on this server'
 					: ''}
 			</p>
-			<p className="preparation-detail">Playback starts when you press play.</p>
+			<p className="preparation-detail">
+				{isRebuffering
+					? 'Preparing the stream for playback.'
+					: 'Playback starts when you press play.'}
+			</p>
 		</div>
 	);
 }

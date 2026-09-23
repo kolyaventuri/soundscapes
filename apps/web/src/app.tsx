@@ -9,6 +9,7 @@ import {request} from './api.js';
 import {Player} from './player.js';
 import {PreparationFeedback} from './preparation.js';
 import {InstallInfo} from './install.js';
+import {StreamLevel} from './level.js';
 
 function restoreConnection() {
 	try {
@@ -29,11 +30,13 @@ function restoreConnection() {
 
 function statusLabel(session: Session) {
 	const labels = {
-		initializing: 'Building your scene',
+		initializing: session.ready
+			? 'Buffering your stream'
+			: 'Building your scene',
 		active: `Streaming · ${session.listenerCount} listening`,
 		idle: session.ready ? 'Ready to play' : 'Preparation paused',
 		stopped: 'Session stopped',
-		error: 'Preparation failed',
+		error: session.ready ? 'Playback failed' : 'Preparation failed',
 	};
 	return labels[session.status];
 }
@@ -80,6 +83,7 @@ function SessionPlayback({
 				<PreparationFeedback
 					progress={session.progress ?? undefined}
 					isConnected={isConnected}
+					isRebuffering={session.ready}
 				/>
 			) : null}
 			{session.status === 'idle' && !session.ready ? (
@@ -94,11 +98,18 @@ function SessionPlayback({
 				</button>
 			) : null}
 			{session.ready && !terminal ? (
-				<Player
-					connection={connection}
-					onSession={onSession}
-					onError={onError}
-				/>
+				<>
+					<Player
+						connection={connection}
+						onSession={onSession}
+						onError={onError}
+					/>
+					<StreamLevel
+						connection={connection}
+						onSession={onSession}
+						onError={onError}
+					/>
+				</>
 			) : null}
 			{terminal ? null : (
 				<button
@@ -158,6 +169,18 @@ function SceneSummary({session}: {readonly session: Session}) {
 						'Not specified'}
 				</dd>
 			</dl>
+			{session.recentEvents.length > 0 ? (
+				<details>
+					<summary>Recent sounds</summary>
+					<ul>
+						{session.recentEvents.map((event) => (
+							<li key={`${event.simulatedTime}-${event.description}`}>
+								{event.description}
+							</li>
+						))}
+					</ul>
+				</details>
+			) : null}
 		</div>
 	);
 }
@@ -170,6 +193,7 @@ export function App() {
 	const [connectionError, setConnectionError] = useState('');
 	const [busy, setBusy] = useState(false);
 	const [prompt, setPrompt] = useState('');
+	const [sleepMode, setSleepMode] = useState(false);
 	const id = connection?.session.id;
 	const updateSession = useCallback((session: Session) => {
 		setConnection((current) =>
@@ -249,6 +273,7 @@ export function App() {
 							method: 'POST',
 							body: JSON.stringify({
 								mode: 'ambience',
+								sleepMode,
 								...(prompt.trim() ? {prompt: prompt.trim()} : {}),
 							}),
 						});
@@ -336,7 +361,7 @@ export function App() {
 						<p className="notice-title">An environment of your own.</p>
 						<p>
 							Describe what you want to hear: a place, its activity, crowd
-							murmur or background music. Ask for sleep mode if you want gentler
+							murmur or background music. Select sleep mode if you want gentler
 							dynamics. Preparing a new scene can take a few minutes. Leave the
 							description blank for a soft-air playback test.
 						</p>
@@ -344,19 +369,35 @@ export function App() {
 				) : null}
 				{session ? <SceneSummary session={session} /> : null}
 				{showSetup && !join ? (
-					<label className="scene-prompt">
-						Scene description
-						<textarea
-							value={prompt}
-							maxLength={4000}
-							rows={4}
-							disabled={busy}
-							placeholder="Central Park, October 1932, around 1 AM. Cool autumn air, light wind, sparse distant activity."
-							onChange={(event) => {
-								setPrompt(event.target.value);
-							}}
-						/>
-					</label>
+					<>
+						<label className="scene-prompt">
+							Scene description
+							<textarea
+								value={prompt}
+								maxLength={4000}
+								rows={4}
+								disabled={busy}
+								placeholder="Central Park, October 1932, around 1 AM. Cool autumn air, light wind, sparse distant activity."
+								onChange={(event) => {
+									setPrompt(event.target.value);
+								}}
+							/>
+						</label>
+						<label className="sleep-mode">
+							<input
+								type="checkbox"
+								checked={sleepMode}
+								disabled={busy}
+								onChange={(event) => {
+									setSleepMode(event.target.checked);
+								}}
+							/>
+							Sleep mode{' '}
+							<span>
+								Gentler dynamics; keeps requested music and crowd murmur.
+							</span>
+						</label>
+					</>
 				) : null}
 				{showSetup ? (
 					<button

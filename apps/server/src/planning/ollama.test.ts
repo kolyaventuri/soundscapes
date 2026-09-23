@@ -90,3 +90,17 @@ it('keeps requested music and crowds with sleep mode optional', async () => {
 	const excluded = await planner.parseScene('A cafe with jazz piano. No footsteps or wind.', new AbortController().signal);
 	expect(excluded.constraints).toEqual(['No footsteps or wind']);
 });
+
+it.each([true, false])('honors an explicit sleep mode of %s even if the model disagrees', async sleepMode => {
+	const fetch = vi.fn(async () => response({
+		...scene, sleepMode: !sleepMode, audioPrompt: 'Jazz piano and crowd murmur', calendar: {
+			month: null, day: null, hour: null, minute: null,
+		},
+	}));
+	vi.stubGlobal('fetch', fetch);
+	const planner = new OllamaPlanner(readConfig({}).planner);
+	const result = await planner.parseScene('A cafe with jazz piano and crowd murmur', new AbortController().signal, sleepMode);
+	expect(result.sleepMode).toBe(sleepMode);
+	expect(result.constraints.length > 0).toBe(sleepMode);
+	expect(result.audioPrompt).toContain('Jazz piano');
+});
