@@ -52,6 +52,14 @@ On the iPhone, transfer **only `rootCA.pem`** from the directory printed by `mkc
 
 `HOST=::` enables IPv4 and IPv6 listening on this Mac; Bonjour can advertise both. If the hostname hangs on a phone but the LAN IP reaches a certificate warning, basic IPv4 connectivity works: check hostname resolution and IPv6 listening. The LAN IP is not included in the certificate above, so its warning is expected; use the certified hostname for normal access.
 
+If Bonjour remains unavailable on the iPhone, use a certificate covering the reachable LAN IP. On this host, an additional certificate was created for `192.168.4.64` using the same local CA:
+
+```sh
+HOST=:: TLS_CERT_FILE=data/tls/lan-with-ip.pem TLS_KEY_FILE=data/tls/lan-with-ip-key.pem PORT=3443 pnpm start
+```
+
+Then open `https://192.168.4.64:3443`. The same CA must be installed and trusted on the iPhone. This bypasses hostname discovery, not certificate validation. If the Mac's LAN address changes, regenerate the certificate for its new address; a DHCP reservation can keep the address stable. The original hostname certificate remains available.
+
 `TLS_CERT_FILE` and `TLS_KEY_FILE` must be set together; relative paths resolve from the repository root. Certificates and keys belong under ignored `data/tls/`. `pnpm lan:smoke` uses OpenSSL to create an ephemeral test certificate and verifies the HTTPS API and hostname using trust scoped to its test client. It does not prove iPhone trust or LAN reachability.
 
 ## Preparation feedback
