@@ -11,6 +11,7 @@ const config = [
 	{
 		files: ['apps/web/src/**/*.{ts,tsx}'],
 		react: true,
+		prettier: true,
 		rules: {
 			// Vite uses React's automatic JSX runtime.
 			'react/react-in-jsx-scope': 'off',
