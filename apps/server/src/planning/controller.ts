@@ -2,6 +2,7 @@
 import {randomUUID} from 'node:crypto';
 import {type Scene} from '@soundscapes/shared';
 import {type Asset} from '../persistence/store.js';
+import {contextCompatible, rankReusableAssets} from '../assets/reuse.js';
 import {explicitlyExcluded} from './scene-constraints.js';
 import {
 	eventProposalSchema, nextOpportunityDelay, unsafeDescription, type defaultDelayBuckets, type Planner, type PlannerContext, type ScheduledEvent, type PlanningState, type EventProposal,
@@ -11,7 +12,8 @@ export type {PlanningState} from './contracts.js';
 type Options = {
 	state: PlanningState; planner: Planner; skipProbability: number; delayScale: number; timeoutMs: number; random?: () => number;
 	delayBuckets?: typeof defaultDelayBuckets;
-	context: () => PlannerContext; assets: () => Asset[]; active: () => boolean;
+	reuseThreshold?: number;
+	context: () => PlannerContext; assets: () => Asset[] | Promise<Asset[]>; active: () => boolean;
 	schedule: (event: Omit<ScheduledEvent, 'startMs' | 'simulatedTime'>, signal: AbortSignal, deadlinePlaybackMs: number) => Promise<ScheduledEvent | undefined>;
 	generate?: (proposal: EventProposal, signal: AbortSignal, deadlineAt: number) => Promise<Asset>;
 	changed: () => void; log: (event: string, detail?: string) => void;
@@ -20,6 +22,7 @@ type Options = {
 export function eligibleAssets(assets: Asset[], scene: Scene, history: ScheduledEvent[], elapsedMs: number) {
 	const recent = history.filter(event => event.startMs + event.durationMs >= elapsedMs - (30 * 60_000));
 	return assets.filter(asset => asset.kind === 'event' && asset.event && (asset.event.reviewedSleepSafe || asset.generation?.validation === 'levels-v1')
+		&& contextCompatible(asset, scene)
 		&& scene.allowedEventCategories.includes(asset.event.category)
 		&& !explicitlyExcluded(scene.originalPrompt, asset.event.category)
 		&& !unsafeDescription(`${asset.title} ${asset.event.tags.join(' ')}`, scene.sleepMode)
@@ -91,12 +94,23 @@ export class EventController {
 		this.options.changed();
 	}
 
+	private async selectAsset(eligible: Asset[], scene: Scene, proposal: EventProposal, {signal, deadlineAt}: {signal: AbortSignal; deadlineAt: number}) {
+		const ranked = rankReusableAssets(eligible, scene, proposal, {threshold: this.options.reuseThreshold ?? 0.75, random: this.random});
+		const selected = proposal.assetId === null ? ranked[0] : ranked.find(item => item.asset.id === proposal.assetId);
+		if (selected) {
+			this.options.log('asset-reuse-selected', `${selected.asset.id}: score ${selected.score.toFixed(2)}`);
+			return selected.asset;
+		}
+
+		return proposal.assetId === null && this.options.generate ? abortable(this.options.generate(proposal, signal, deadlineAt), signal) : undefined;
+	}
+
 	private async plan(abort: AbortController) {
 		const signal = AbortSignal.any([abort.signal, AbortSignal.timeout(this.options.generate ? 90_000 : this.options.timeoutMs)]);
 		const deadlineAt = Date.now() + 90_000;
 		try {
 			const context = this.options.context();
-			const eligible = eligibleAssets(this.options.assets(), context.scene, context.recentEvents, context.elapsedMs);
+			const eligible = eligibleAssets(await this.options.assets(), context.scene, context.recentEvents, context.elapsedMs);
 			context.library = eligible.map(asset => ({
 				id: asset.id, title: asset.title, category: asset.event!.category, durationSeconds: asset.durationMs / 1000, tags: asset.event!.tags,
 			}));
@@ -117,10 +131,7 @@ export class EventController {
 				return;
 			}
 
-			let asset = eligible.find(asset => asset.id === proposal.assetId);
-			if (!asset && proposal.assetId === null && this.options.generate) {
-				asset = await abortable(this.options.generate(proposal, signal, deadlineAt), signal);
-			}
+			const asset = await this.selectAsset(eligible, context.scene, proposal, {signal, deadlineAt});
 
 			if (!asset || proposal.category !== asset.event?.category || proposal.durationSeconds! * 1000 > asset.durationMs
 				|| eligibleAssets([asset], context.scene, context.recentEvents, context.elapsedMs).length === 0) {
@@ -136,7 +147,9 @@ export class EventController {
 			const scheduled = await this.options.schedule({
 				id: randomUUID(), assetId: asset.id, description: proposal.event, category: asset.event.category,
 				durationMs: Math.round(proposal.durationSeconds! * 1000), prominence: proposal.prominence!,
-				gain: Math.min(0.5, 0.15 + proposal.prominence!), fadeMs: 1000, pan: (this.random() - 0.5) * 0.3, lowpassHz: 3500,
+				gain: Math.min(0.5, (0.15 + proposal.prominence!) * (0.9 + (this.random() * 0.2))),
+				fadeMs: Math.round(750 + (this.random() * 500)), pan: (this.random() - 0.5) * 0.3, lowpassHz: Math.round(3000 + (this.random() * 1000)),
+				offsetMs: Math.floor(this.random() * Math.max(0, asset.durationMs - (proposal.durationSeconds! * 1000))),
 			}, signal, context.earliestPlaybackMs + 60_000);
 			if (scheduled) {
 				this.options.log('event-scheduled', `${asset.title} at ${scheduled.startMs}ms`);

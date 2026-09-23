@@ -39,7 +39,7 @@ export function mixArguments({beds, assets, events = [], root, startMs, duration
 	const labels = overlap.map((bed, index) => `[a${index}]`);
 	for (const event of events.filter(event => event.startMs < startMs + durationMs && event.startMs + event.durationMs > startMs)) {
 		const asset = assets.find(asset => asset.id === event.assetId && asset.kind === 'event');
-		if (!asset) {
+		if (!asset || (event.offsetMs ?? 0) + event.durationMs > asset.durationMs) {
 			// Missing optional events must not interrupt the bed.
 			continue;
 		}
@@ -50,6 +50,8 @@ export function mixArguments({beds, assets, events = [], root, startMs, duration
 		const delay = Math.max(0, event.startMs - startMs);
 		const fade = Math.min(event.fadeMs, event.durationMs / 2) / 1000;
 		const processing = [
+			`atrim=start=${(event.offsetMs ?? 0) / 1000}:duration=${event.durationMs / 1000}`,
+			'asetpts=PTS-STARTPTS',
 			`lowpass=f=${event.lowpassHz}`,
 			`volume=${event.gain}`,
 			`pan=stereo|c0=${1 - Math.max(0, event.pan)}*c0|c1=${1 + Math.min(0, event.pan)}*c1`,

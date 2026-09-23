@@ -18,7 +18,11 @@ const proposal: EventProposal = {
 	event: 'A gentle breeze', assetId: asset.id, category: 'wind', durationSeconds: 8, prominence: 0.1, reason: 'Quiet air in the park',
 };
 
-function harness(propose: Planner['propose'], timeoutMs = 1000, skipProbability = 0, generate?: (proposal: EventProposal, signal: AbortSignal, deadlineAt: number) => Promise<typeof asset>) {
+function harness(propose: Planner['propose'], timeoutMs = 1000, skipProbability = 0, generation?: {
+	generate: (proposal: EventProposal, signal: AbortSignal, deadlineAt: number) => Promise<typeof asset>; library?: Array<typeof asset>;
+}) {
+	const generate = generation?.generate;
+	const library = generation?.library ?? [asset];
 	let active = true;
 	const schedule = vi.fn(async (event: Omit<ScheduledEvent, 'startMs' | 'simulatedTime'>) => ({...event, startMs: 121_000, simulatedTime: scene.simulatedStart}));
 	const log = vi.fn();
@@ -27,7 +31,7 @@ function harness(propose: Planner['propose'], timeoutMs = 1000, skipProbability 
 	const controller = new EventController({
 		state, planner, timeoutMs, skipProbability, delayScale: 1, random: () => 0.5,
 		...(generate ? {generate} : {}),
-		assets: () => [asset], active: () => active, changed: vi.fn(), schedule, log,
+		assets: () => library, active: () => active, changed: vi.fn(), schedule, log,
 		context: () => ({
 			scene, simulatedTime: scene.simulatedStart, elapsedMs: 0, recentEvents: [], ambientState: ['air'], library: [], earliestPlaybackMs: 121_000,
 		}),
@@ -129,7 +133,7 @@ it('drops timed-out and cancelled results even when an adapter ignores abort', a
 
 it('generates a missing event only after validation and passes a fixed future deadline', async () => {
 	const generate = vi.fn(async () => asset);
-	const {controller, schedule} = harness(async () => ({...proposal, assetId: null}), 1000, 0, generate);
+	const {controller, schedule} = harness(async () => ({...proposal, assetId: null}), 1000, 0, {generate, library: []});
 	controller.tick(0);
 	await controller.settled();
 	expect(generate).toHaveBeenCalledTimes(1);
@@ -139,15 +143,24 @@ it('generates a missing event only after validation and passes a fixed future de
 
 it('reuses a selected asset without inference and rejects unsafe requests before generation', async () => {
 	const generate = vi.fn(async () => asset);
-	const reused = harness(async () => proposal, 1000, 0, generate);
+	const reused = harness(async () => proposal, 1000, 0, {generate});
 	reused.controller.tick(0);
 	await reused.controller.settled();
 	expect(reused.schedule).toHaveBeenCalledTimes(1);
-	const unsafe = harness(async () => ({...proposal, assetId: null, event: 'A loud nearby alarm'}), 1000, 0, generate);
+	const unsafe = harness(async () => ({...proposal, assetId: null, event: 'A loud nearby alarm'}), 1000, 0, {generate});
 	unsafe.controller.tick(0);
 	await unsafe.controller.settled();
 	expect(unsafe.schedule).not.toHaveBeenCalled();
 	expect(generate).not.toHaveBeenCalled();
+});
+
+it('reuses a high-scoring match even when the planner asks to generate an effect', async () => {
+	const generate = vi.fn(async () => asset);
+	const {controller, schedule} = harness(async () => ({...proposal, assetId: null}), 1000, 0, {generate});
+	controller.tick(0);
+	await controller.settled();
+	expect(generate).not.toHaveBeenCalled();
+	expect(schedule).toHaveBeenCalledWith(expect.objectContaining({assetId: asset.id, offsetMs: 1000}), expect.any(AbortSignal), 181_000);
 });
 
 it('discards generation finishing after pause, even if an adapter ignores cancellation', async () => {
@@ -155,7 +168,7 @@ it('discards generation finishing after pause, even if an adapter ignores cancel
 	const generate = vi.fn(async () => new Promise<typeof asset>(resolve => {
 		complete = resolve;
 	}));
-	const {controller, schedule, deactivate} = harness(async () => ({...proposal, assetId: null}), 1000, 0, generate);
+	const {controller, schedule, deactivate} = harness(async () => ({...proposal, assetId: null}), 1000, 0, {generate, library: []});
 	controller.tick(0);
 	await vi.waitFor(() => {
 		expect(generate).toHaveBeenCalledTimes(1);

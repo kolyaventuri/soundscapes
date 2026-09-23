@@ -19,6 +19,7 @@ const environmentSchema = z.object({
 	EVENT_SKIP_PROBABILITY: z.coerce.number().min(0).max(1).default(0.25),
 	EVENT_DELAY_SCALE: z.coerce.number().min(0.05).max(10).default(1),
 	EVENT_DELAY_BUCKETS: z.string().optional(),
+	ASSET_REUSE_THRESHOLD: z.coerce.number().min(0).max(1).default(0.75),
 	SOUND_ENABLED: z.enum(['true', 'false']).default('true'),
 	SOUND_PYTHON: z.string().min(1).default('models/sound-runtime/bin/python'),
 	SOUND_MODEL: z.enum(['small-sfx', 'small-music', 'medium']).default('small-sfx'),
@@ -62,6 +63,7 @@ export function readConfig(environment: NodeJS.ProcessEnv = process.env) {
 			timeoutMs: parsed.SOUND_TIMEOUT_SECONDS * 1000, idleUnloadMs: parsed.SOUND_IDLE_UNLOAD_SECONDS * 1000,
 		},
 		planner: {
+			reuseThreshold: parsed.ASSET_REUSE_THRESHOLD,
 			url: ollamaUrl.origin, model: parsed.OLLAMA_MODEL, timeoutMs: parsed.PLANNER_TIMEOUT_SECONDS * 1000, skipProbability: parsed.EVENT_SKIP_PROBABILITY, delayScale: parsed.EVENT_DELAY_SCALE,
 			delayBuckets: delayBucketsSchema.parse(parsed.EVENT_DELAY_BUCKETS ? JSON.parse(parsed.EVENT_DELAY_BUCKETS) : defaultDelayBuckets),
 		},

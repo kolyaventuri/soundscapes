@@ -16,7 +16,8 @@ import {startAmbienceRenderer} from '../ambience/renderer.js';
 import {timelineSchema, type TimelineState} from '../ambience/timeline.js';
 import {Store, type Asset} from '../persistence/store.js';
 import {type AppConfig} from '../config.js';
-import {GenerationService, sceneKey} from '../generation/service.js';
+import {GenerationService} from '../generation/service.js';
+import {contextCompatible} from '../assets/reuse.js';
 import {type SoundGenerator} from '../generation/contracts.js';
 import {OllamaPlanner} from '../planning/ollama.js';
 import {EventController, abortable, type PlanningState} from '../planning/controller.js';
@@ -206,6 +207,22 @@ export class SessionManager {
 
 	get(id: string) {
 		return this.view(this.record(id));
+	}
+
+	async assetsDebug(offset = 0, limit = 25) {
+		const assets = this.store.assets();
+		const page = assets.slice(offset, offset + limit);
+		return {
+			total: assets.length, offset, assets: await Promise.all(page.map(async asset => {
+				let available = false;
+				try {
+					const file = await stat(path.join(this.config.dataDirectory, asset.file));
+					available = file.isFile() && file.size > 44 && file.size <= 24 * 1024 * 1024;
+				} catch {/* Retain missing metadata for diagnosis without selecting it. */}
+
+				return {...asset, available};
+			})),
+		};
 	}
 
 	resumePreparation(id: string, listenerId: string) {
@@ -667,7 +684,7 @@ export class SessionManager {
 		const available = session.mode === 'ambience' ? await playableAssets(this.config, this.store) : [];
 		const assets = available.filter(asset => session.generationEnabled ? session.assetIds.includes(asset.id) : !asset.generation);
 		const eventAssets = session.planningEnabled ? await playableAssets(this.config, this.store, 'event') : [];
-		session.eventAssets = eventAssets.filter(asset => asset.event && (!asset.generation || asset.generation.sceneKey === sceneKey(session.scene))).slice(0, 64);
+		session.eventAssets = eventAssets.filter(asset => asset.event && contextCompatible(asset, session.scene)).slice(0, 64);
 		if (session.mode === 'ambience' && session.assetIds.length === 0) {
 			session.assetIds = assets.map(asset => asset.id);
 		}
@@ -754,7 +771,10 @@ export class SessionManager {
 		return new EventController({
 			state: session.planning, planner: this.planner, ...this.config.planner,
 			active: () => !this.closing && session.status === 'active',
-			assets: () => session.eventAssets,
+			assets: async () => {
+				const available = await playableAssets(this.config, this.store, 'event');
+				return available.filter(asset => session.eventAssets.some(item => item.id === asset.id));
+			},
 			...(session.generationEnabled
 				? {
 					generate: async (proposal, signal, deadlineAt) => {

@@ -11,7 +11,7 @@ import {
 import {buildApp} from '../app.js';
 import {type Renderer, type RendererOptions} from '../audio/hls.js';
 import {readConfig} from '../config.js';
-import {Store} from '../persistence/store.js';
+import {Store, assetSchema} from '../persistence/store.js';
 import {type Planner} from '../planning/contracts.js';
 import {SessionManager} from './manager.js';
 
@@ -45,8 +45,9 @@ async function setup(planner?: Planner) {
 		renderers.push(renderer);
 		return renderer;
 	});
+	const store = new Store(path.join(directory, 'test.sqlite'));
 	const manager = new SessionManager({
-		config, store: new Store(path.join(directory, 'test.sqlite')), rendererFactory: factory, now: () => now, automaticWatchdog: false,
+		config, store, rendererFactory: factory, now: () => now, automaticWatchdog: false,
 		...(planner ? {planner} : {}),
 	});
 	cleanup.push(async () => {
@@ -54,7 +55,7 @@ async function setup(planner?: Planner) {
 		await rm(directory, {recursive: true, force: true});
 	});
 	return {
-		manager, config, factory, renderers, now: () => now, advance(ms: number) {
+		manager, config, store, factory, renderers, now: () => now, advance(ms: number) {
 			now += ms;
 		},
 	};
@@ -74,6 +75,28 @@ it('bounds preparation, stays idle without listeners, and never treats polling a
 	await manager.sweep();
 	expect(factory).toHaveBeenCalledTimes(1);
 	expect(renderers.every(renderer => !renderer.running)).toBe(true);
+});
+
+it('reports missing assets through a bounded read-only debug API without counting usage', async () => {
+	const {manager, config, store} = await setup();
+	const asset = assetSchema.parse({
+		id: randomUUID(), kind: 'event', title: 'Breeze', file: 'assets/events/missing.wav',
+		durationMs: 8000, sampleRate: 44_100, channels: 2, peakDb: -25, meanDb: -40, source: 'Test',
+		event: {category: 'wind', tags: ['wind'], reviewedSleepSafe: true},
+	});
+	store.putAsset(asset);
+	const app = await buildApp({config, sessions: manager});
+	try {
+		const response = await app.inject('/api/debug/assets?limit=10');
+		expect(response.statusCode).toBe(200);
+		expect(response.headers['cache-control']).toBe('no-store');
+		expect(response.json()).toMatchObject({total: 1, assets: [{id: asset.id, available: false, usageCount: 0}]});
+		const invalid = await app.inject('/api/debug/assets?limit=1000');
+		expect(invalid.statusCode).toBe(400);
+		expect(store.assets()[0]!.usageCount).toBe(0);
+	} finally {
+		await app.close();
+	}
 });
 
 it('cancels scene initialization immediately on Stop without starting audio', async () => {

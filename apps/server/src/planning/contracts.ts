@@ -12,6 +12,7 @@ export const scheduledEventSchema = z.object({
 	id: z.uuid(), assetId: z.uuid(), description: z.string().max(500), category: eventCategorySchema,
 	startMs: z.number().nonnegative(), durationMs: z.number().min(2000).max(30_000), gain: z.number().min(0).max(0.5),
 	fadeMs: z.number().min(500).max(3000), pan: z.number().min(-0.2).max(0.2), lowpassHz: z.number().min(1500).max(6000),
+	offsetMs: z.number().int().min(0).max(118_000).optional(),
 	prominence: z.number().min(0).max(0.2), simulatedTime: z.iso.datetime(),
 });
 export type ScheduledEvent = z.infer<typeof scheduledEventSchema>;

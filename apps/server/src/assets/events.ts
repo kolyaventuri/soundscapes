@@ -14,6 +14,7 @@ import {measure} from './fixtures.js';
 export const eventImportSchema = z.strictObject({
 	title: z.string().trim().min(1).max(120), category: eventCategorySchema, tags: z.array(z.string().trim().min(1).max(80)).max(12),
 	source: z.string().trim().min(1).max(500), reviewedSleepSafe: z.literal(true),
+	affinity: assetSchema.shape.affinity,
 });
 
 export async function importEvent(file: string, metadata: z.infer<typeof eventImportSchema>, config: AppConfig, store: Store) {
@@ -57,7 +58,7 @@ export async function importEvent(file: string, metadata: z.infer<typeof eventIm
 		}
 
 		const asset = assetSchema.parse({
-			id, kind: 'event', title: verified.title, file: relative, ...normalized, source: verified.source,
+			id, kind: 'event', title: verified.title, file: relative, ...normalized, source: verified.source, affinity: verified.affinity,
 			event: {category: verified.category, tags: verified.tags, reviewedSleepSafe: true},
 		});
 		await rename(temporary, target);

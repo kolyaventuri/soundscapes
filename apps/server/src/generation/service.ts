@@ -7,6 +7,7 @@ import {z} from 'zod';
 import {type Scene} from '@soundscapes/shared';
 import {type AppConfig} from '../config.js';
 import {measure, playableAssets} from '../assets/fixtures.js';
+import {audioTags, sceneKey} from '../assets/reuse.js';
 import {runAudioCommand} from '../audio/process.js';
 import {assetSchema, type Asset, type Store} from '../persistence/store.js';
 import {type EventProposal} from '../planning/contracts.js';
@@ -15,9 +16,7 @@ import {type GeneratedAudio, type SoundGenerator, type SoundRequest} from './con
 import {GenerationQueue} from './queue.js';
 import {PythonSoundGenerator} from './python.js';
 
-export function sceneKey(scene: Scene) {
-	return hash(scene.originalPrompt.trim().replaceAll(/\s+/g, ' ').toLowerCase());
-}
+export {sceneKey} from '../assets/reuse.js';
 
 function hash(text: string) {
 	return createHash('sha256').update(text).digest('hex');
@@ -155,7 +154,7 @@ export class GenerationService {
 			}
 
 			const asset = await this.validate(audio, request, owner.signal, {
-				title: description.title, sceneKey: key, assetKey, variant: description.variant, category: description.category,
+				title: description.title, sceneKey: key, assetKey, variant: description.variant, category: description.category, affinity: scene,
 			});
 			owner.signal.throwIfAborted();
 			if (!owner.valid() || (owner.deadlineAt !== undefined && Date.now() >= owner.deadlineAt)) {
@@ -187,7 +186,7 @@ export class GenerationService {
 	}
 
 	private async validate(audio: GeneratedAudio, request: SoundRequest, signal: AbortSignal, metadata: {
-		title: string; sceneKey: string; assetKey: string; variant?: number | undefined; category?: NonNullable<EventProposal['category']> | undefined;
+		title: string; sceneKey: string; assetKey: string; variant?: number | undefined; category?: NonNullable<EventProposal['category']> | undefined; affinity: Scene;
 	}) {
 		const expected = await checkOutputPath(this.config.sound.output, request.id, audio.path);
 
@@ -262,13 +261,13 @@ export class GenerationService {
 			}
 
 			const asset = assetSchema.parse({
-				id: request.id, kind: request.kind, title: metadata.title, file, ...levels,
+				id: request.id, kind: request.kind, title: metadata.title, file, ...levels, affinity: metadata.affinity,
 				source: `${audio.model} ${audio.revision}; automated level checks; listening acceptance pending`,
 				generation: {
 					...metadata, model: audio.model, revision: audio.revision, seed: request.seed, prompt: request.prompt,
 					createdAt: new Date().toISOString(), validation: 'levels-v1', elapsedMs: audio.elapsedMs,
 				},
-				...(metadata.category ? {event: {category: metadata.category, tags: [metadata.category], reviewedSleepSafe: false}} : {}),
+				...(metadata.category ? {event: {category: metadata.category, tags: [...new Set([metadata.category, ...audioTags(metadata.title)])].slice(0, 12), reviewedSleepSafe: false}} : {}),
 			});
 			await mkdir(path.dirname(target), {recursive: true});
 			await rename(temporary, target);

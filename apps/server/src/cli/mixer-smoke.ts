@@ -30,7 +30,7 @@ try {
 	const timeline: TimelineState = {seed: 1932, beds: []};
 	extendTimeline(timeline, assets.filter(asset => asset.kind === 'ambience'), {untilMs: 180_000, playbackMs: 0});
 	const events: ScheduledEvent[] = [{
-		id: randomUUID(), assetId: eventAsset.id, description: 'Test breeze', category: 'wind', startMs: 85_000, durationMs: 12_000,
+		id: randomUUID(), assetId: eventAsset.id, description: 'Test breeze', category: 'wind', startMs: 85_000, durationMs: 10_000, offsetMs: 2000,
 		gain: 0.25, fadeMs: 1000, pan: 0.15, lowpassHz: 3500, prominence: 0.1, simulatedTime: '2000-01-01T01:01:25Z',
 	}];
 	const reference = path.join(directory, 'reference.pcm');

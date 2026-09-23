@@ -16,6 +16,10 @@ type SessionParameters = {id: string};
 type ListenerBody = {listenerId: string};
 
 export function registerSessionRoutes(app: FastifyInstance, manager: SessionManager) {
+	app.get<{Querystring: {offset?: string; limit?: string}}>('/api/debug/assets', {
+		schema: {querystring: jsonSchema(z.strictObject({offset: z.string().regex(/^\d{1,8}$/).optional(), limit: z.enum(['10', '25', '50', '100']).optional()}))},
+	}, async request => manager.assetsDebug(Number(request.query.offset ?? 0), Number(request.query.limit ?? 25)));
+
 	app.post<{Body: {mode: 'fixture' | 'ambience'; prompt?: string}}>('/api/sessions', {
 		schema: {body: jsonSchema(createSessionSchema), response: {202: listenerResponse}},
 	}, async (request, reply) => reply.code(202).send(manager.create(request.body.mode, request.body.prompt)));
