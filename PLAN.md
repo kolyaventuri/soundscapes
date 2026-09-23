@@ -76,9 +76,10 @@ Spec: §6, §10–11, §15–16, §20–21, §26–33, §38, milestones 2–3 in
 - [x] Implement a 1:1 simulation clock that freezes while idle and resumes from stored scene state; recover safely after a normal restart.
 - [x] Expose debug session state: buffer, queue, next opportunity, active bed, model state, and last stream-consumption age. Keep routine per-segment logging off.
 - [x] Unit-test selection/state/clock/watchdog behavior using injected time and randomness. Integration-test HLS continuity, pause/resume, cleanup, and FFmpeg failure.
-- [ ] Listen through crossfades and run several hours of fixture playback with bounded memory/disk and no gaps; repeat the iPhone transport gate.
+- [x] Obtain a short physical iPhone listening check through crossfades and pause/resume (user reports approximately five minutes of successful playback).
+- [ ] Run several hours of fixture playback with bounded memory/disk and no gaps; repeat locked-screen/Bluetooth and disconnect/reconnect checks with the ambience mixer.
 
-Implementation and short-run checks are complete. Multi-hour resource stability, listening quality, and the repeat iPhone gate remain open.
+Implementation, automated short-run checks, and an initial physical iPhone listening/pause/resume check are complete. Multi-hour resource stability, sustained listening quality, and the remaining repeat iPhone transport checks remain open.
 
 Exit: an unattended, persistent ambient stream works without any AI dependency.
 
@@ -174,5 +175,7 @@ These do not block v0.1 and should not displace transport reliability, resource 
 | 2026-09-23 | Phase 2 real stream | `AUDIO_TEST_SECONDS=240 pnpm audio:phase2` passes real HTTP AAC decoding across several bed transitions; all 457 samples stayed 89.7–119.6 seconds ahead, within the 45/90/180-second design bounds. PCM/HLS retention, pause, frozen output, resume, watchdog shutdown, HLS reconnect, normal restart, same session/listener IDs, and explicit-stop cleanup pass. | Watchdog accelerated to 30 seconds for the test. Earlier long runs exposed a mixer subprocess failure; one FFmpeg filter-graph worker and subprocess diagnostics were added before this successful run. Longer soak remains required. Playback cursor is a server active-time estimate, not exact per-device speaker position. |
 | 2026-09-23 | Phase 2 Chrome and restart | Production build in isolated data directory played native HLS beyond 128 seconds without media error. Pause returned idle. After server restart and page reload, the same session ID resumed and played beyond 79 seconds without media error; no captured browser errors/warnings. Explicit Stop removed the player. Temporary Chrome tab and test server closed. | Desktop browser only. Repeat locked-screen/Bluetooth/pause/disconnect/reconnect acceptance on the physical iPhone with this mixer, and run several hours with resource measurements. |
 | 2026-09-23 | Phase 2 cleanup | Temporary browser-test data and mixer reproduction output removed. Process inspection found no remaining test servers, audio integration jobs, or soundscape FFmpeg renderers. Four registered ambience fixtures remain under ignored `data/` for local use. | No server left running. Run `pnpm dev` and prepare a new ambience stream. |
+
+| 2026-09-23 | Phase 2 physical iPhone — user report | Approximately five minutes of playback sounded good; pause/resume and crossfades worked. Earlier user feedback also reported a smooth transition near 90,000 ms. | Exact build/iOS/browser and audio output were not supplied. This report does not explicitly repeat locked-screen/Bluetooth or disconnect/watchdog/reconnect checks with the mixer. Multi-hour resource stability and overnight acceptance remain open. |
 
 For each acceptance run, append commands/build revision, device/runtime versions, duration, results, and unresolved failures. Do not mark physical-device or overnight checks complete from unit tests, generated playlists, or a desktop preview.
