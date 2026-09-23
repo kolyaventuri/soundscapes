@@ -34,6 +34,10 @@ export function registerSessionRoutes(app: FastifyInstance, manager: SessionMana
 		}, async request => manager[action](request.params.id, request.body.listenerId));
 	}
 
+	app.post<{Params: SessionParameters; Body: ListenerBody}>('/api/sessions/:id/prepare', {
+		schema: {params: parametersSchema, body: controlSchema, response: {202: sessionResponse}},
+	}, async (request, reply) => reply.code(202).send(manager.resumePreparation(request.params.id, request.body.listenerId)));
+
 	app.post<{Params: SessionParameters}>('/api/sessions/:id/stop', {
 		schema: {params: parametersSchema, response: {200: sessionResponse}},
 	}, async request => manager.stop(request.params.id));

@@ -7,6 +7,7 @@ import {
 import {useCallback, useEffect, useState} from 'react';
 import {request} from './api.js';
 import {Player} from './player.js';
+import {PreparationFeedback} from './preparation.js';
 
 function restoreConnection() {
 	try {
@@ -27,9 +28,9 @@ function restoreConnection() {
 
 function statusLabel(session: Session) {
 	const labels = {
-		initializing: `${session.preparation || 'Preparing your stream'}…`,
+		initializing: 'Building your scene',
 		active: `Streaming · ${session.listenerCount} listening`,
-		idle: session.ready ? 'Ready · rendering paused' : 'Preparation paused',
+		idle: session.ready ? 'Ready to play' : 'Preparation paused',
 		stopped: 'Session stopped',
 		error: 'Preparation failed',
 	};
@@ -42,21 +43,55 @@ function SessionPlayback({
 	onStop,
 	onSession,
 	onError,
+	isConnected,
 }: {
 	readonly connection: ListenerSession;
 	readonly isBusy: boolean;
 	readonly onStop: () => Promise<void>;
 	readonly onSession: (session: Session) => void;
 	readonly onError: (message: string) => void;
+	readonly isConnected: boolean;
 }) {
 	const {session} = connection;
 	const terminal = session.status === 'stopped' || session.status === 'error';
+	async function resume() {
+		try {
+			onSession(
+				await request(`/api/sessions/${session.id}/prepare`, sessionSchema, {
+					method: 'POST',
+					body: JSON.stringify({listenerId: connection.listenerId}),
+				}),
+			);
+		} catch (error) {
+			onError(
+				error instanceof Error ? error.message : 'Could not resume preparation',
+			);
+		}
+	}
+
 	return (
 		<>
 			<p className="connection" role="status">
 				<span aria-hidden="true" />
 				{statusLabel(session)}
 			</p>
+			{session.status === 'initializing' ? (
+				<PreparationFeedback
+					progress={session.progress ?? undefined}
+					isConnected={isConnected}
+				/>
+			) : null}
+			{session.status === 'idle' && !session.ready ? (
+				<button
+					type="button"
+					disabled={isBusy}
+					onClick={() => {
+						void resume();
+					}}
+				>
+					Continue preparing
+				</button>
+			) : null}
 			{session.ready && !terminal ? (
 				<Player
 					connection={connection}
@@ -73,7 +108,9 @@ function SessionPlayback({
 						void onStop();
 					}}
 				>
-					Stop session
+					{session.status === 'initializing'
+						? 'Cancel preparation'
+						: 'Stop session'}
 				</button>
 			)}
 		</>
@@ -88,11 +125,48 @@ function preparationLabel(join: boolean, prompt: string) {
 			: 'Prepare test stream';
 }
 
+function SceneSummary({session}: {readonly session: Session}) {
+	const {scene} = session;
+	if (!scene || !['active', 'idle'].includes(session.status)) {
+		return null;
+	}
+
+	return (
+		<div className="scene-summary">
+			<p>{scene.description}</p>
+			<dl>
+				<dt>Setting</dt>
+				<dd>
+					{scene.location || scene.title}
+					{scene.sleepMode ? ' · Sleep mode' : ''}
+				</dd>
+				<dt>Scene clock</dt>
+				<dd>
+					{new Date(session.simulatedTime).toLocaleString(undefined, {
+						timeZone: 'UTC',
+						year: 'numeric',
+						month: 'short',
+						day: 'numeric',
+						hour: 'numeric',
+						minute: '2-digit',
+					})}
+				</dd>
+				<dt>Weather</dt>
+				<dd>
+					{Object.values(scene.weather).filter(Boolean).join(' · ') ||
+						'Not specified'}
+				</dd>
+			</dl>
+		</div>
+	);
+}
+
 export function App() {
 	const [connection, setConnection] = useState<ListenerSession | undefined>(
 		restoreConnection,
 	);
 	const [error, setError] = useState('');
+	const [connectionError, setConnectionError] = useState('');
 	const [busy, setBusy] = useState(false);
 	const [prompt, setPrompt] = useState('');
 	const id = connection?.session.id;
@@ -122,10 +196,11 @@ export function App() {
 				});
 				if (!disposed) {
 					updateSession(session);
+					setConnectionError('');
 				}
 			} catch (error_) {
 				if (!disposed) {
-					setError(
+					setConnectionError(
 						error_ instanceof Error
 							? error_.message
 							: 'The local server is unavailable',
@@ -227,8 +302,9 @@ export function App() {
 		!connection &&
 		new URLSearchParams(globalThis.location.search).has('session');
 	const prepareLabel = preparationLabel(join, prompt);
-	const showSetup = !session || terminal;
-	const message = error || session?.error;
+	const current = terminal ? undefined : session;
+	const showSetup = !current;
+	const message = [error, session?.error, connectionError].find(Boolean);
 	return (
 		<main>
 			<header>
@@ -239,8 +315,8 @@ export function App() {
 			<section aria-labelledby="welcome-title">
 				<p className="eyebrow">Step into a scene</p>
 				<h1 id="welcome-title">
-					{session ? (
-						session.title
+					{current ? (
+						current.title
 					) : (
 						<>
 							A place to
@@ -250,17 +326,22 @@ export function App() {
 					)}
 				</h1>
 				<p className="introduction">
-					Your setting, brought to life on your local server.
+					{current
+						? 'Generated locally, for you.'
+						: 'Your setting, brought to life on your local server.'}
 				</p>
-				<div className="notice">
-					<p className="notice-title">An environment of your own.</p>
-					<p>
-						Describe what you want to hear: a place, its activity, crowd murmur
-						or background music. Ask for sleep mode if you want gentler
-						dynamics. Preparing a new scene can take a few minutes. Leave the
-						description blank for a soft-air playback test.
-					</p>
-				</div>
+				{showSetup ? (
+					<div className="notice">
+						<p className="notice-title">An environment of your own.</p>
+						<p>
+							Describe what you want to hear: a place, its activity, crowd
+							murmur or background music. Ask for sleep mode if you want gentler
+							dynamics. Preparing a new scene can take a few minutes. Leave the
+							description blank for a soft-air playback test.
+						</p>
+					</div>
+				) : null}
+				{session ? <SceneSummary session={session} /> : null}
 				{showSetup && !join ? (
 					<label className="scene-prompt">
 						Scene description
@@ -292,6 +373,7 @@ export function App() {
 					<SessionPlayback
 						connection={connection}
 						isBusy={busy}
+						isConnected={!connectionError}
 						onStop={stop}
 						onSession={updateSession}
 						onError={setError}

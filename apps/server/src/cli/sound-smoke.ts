@@ -9,6 +9,8 @@ import {PythonSoundGenerator} from '../generation/python.js';
 import {GenerationService} from '../generation/service.js';
 import {OllamaPlanner} from '../planning/ollama.js';
 import {openStore} from '../persistence/open.js';
+import {Preparation} from '../sessions/preparation.js';
+import {type SoundGenerator, type SoundProgress} from '../generation/contracts.js';
 
 loadEnvironment();
 const config = readConfig();
@@ -21,7 +23,17 @@ if (promptIndex >= 0 && !customPrompt) {
 }
 
 const durationSeconds = process.argv.includes('--bed') ? 90 : 12;
-const generator = new PythonSoundGenerator(isolated.sound);
+const workerProgress: Array<{id: string; at: number; progress: SoundProgress}> = [];
+class ObservedGenerator extends PythonSoundGenerator {
+	override async generate(...[request, signal, progress]: Parameters<SoundGenerator['generate']>) {
+		return super.generate(request, signal, value => {
+			workerProgress.push({id: request.id, at: performance.now(), progress: value});
+			progress?.(value);
+		});
+	}
+}
+
+const generator = new ObservedGenerator(isolated.sound);
 const store = await openStore(directory);
 const generation = new GenerationService(isolated, store, generator);
 try {
@@ -35,19 +47,33 @@ try {
 			});
 		const owner = {sessionId: randomUUID(), signal: new AbortController().signal, valid: () => true};
 		const started = performance.now();
+		const preparation = new Preparation(store, () => performance.now(), 4);
 		const beds = await generation.beds(scene, owner, assets => {
 			console.log(`Validated ${assets.length}/4 beds`);
-		});
+		}, preparation);
 		const preparationMs = performance.now() - started;
 		const event = customPrompt
 			? undefined
 			: await generation.event(scene, {
 				event: 'A soft breeze passing through distant autumn leaves', assetId: null, category: 'leaves', durationSeconds: 12, prominence: 0.1, reason: 'Local smoke test',
 			}, owner);
-		const reused = await generation.beds(scene, owner, () => undefined);
+		const reusePreparation = new Preparation(store, () => performance.now(), 4);
+		const progressCount = workerProgress.length;
+		const reused = await generation.beds(scene, owner, () => undefined, reusePreparation);
 		assert.deepEqual(reused.map(asset => asset.id), beds.map(asset => asset.id));
+		assert.equal(workerProgress.length, progressCount);
+		assert.equal(reusePreparation.reusedBeds, 4);
+		for (const bed of beds) {
+			const updates = workerProgress.filter(item => item.id === bed.id);
+			assert.ok(updates.some(item => item.progress.stage === 'loading'));
+			assert.ok(updates.some(item => item.progress.stage === 'generating'));
+			if (config.sound.device === 'mlx') {
+				assert.deepEqual(updates.filter(item => item.progress.step).map(item => item.progress.step!.completed), [0, 1, 2, 3, 4, 5, 6, 7, 8]);
+			}
+		}
+
 		await writeFile(path.join(directory, 'scene.json'), `${JSON.stringify({
-			scene, beds, event, preparationMs, reused: true,
+			scene, beds, event, preparationMs, reused: true, workerProgress, reusedBeds: reusePreparation.reusedBeds,
 		}, null, 2)}\n`);
 		console.log(`PASS: four generated 90-second beds, normalization and exact-scene reuse${event ? ', plus a generated event' : ''}. Evidence: ${directory}`);
 	} else {

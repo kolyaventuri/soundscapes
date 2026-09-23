@@ -27,7 +27,7 @@ class MlxSoundModel:
             if not (self.directory / file).is_file():
                 raise FileNotFoundError(f"Missing local MLX weight {file}; run sound:setup")
 
-    def generate(self, prompt, duration, seed):
+    def generate(self, prompt, duration, seed, progress=lambda *args: None):
         import mlx.core as mx
         import numpy as np
         from models.defs.t5gemma_mlx import T5Gemma
@@ -65,13 +65,18 @@ class MlxSoundModel:
         schedule = build_pingpong_schedule(8, sigma_max=1.0, use_logsnr_shift=True)
         def model_fn(x, t):
             return dit(x, t, cross, global_cond, local_add_cond=None)
+        def on_step(step, total):
+            print(f"MLX: sampling {step}/{total}", flush=True)
+            progress("generating", step, total)
+        progress("generating", 0, 8)
         latents = sample_flow_pingpong(model_fn, noise, schedule, seed=seed + 1,
-                                      on_step=lambda step, total: print(f"MLX: sampling {step}/{total}", flush=True))
+                                      on_step=on_step)
         mx.eval(latents)
         del dit, model_fn, noise, cross, global_cond
         release()
 
         print("MLX: decoding stereo audio", flush=True)
+        progress("decoding")
         module = importlib.import_module(f"models.defs.same_{self.codec}_decoder")
         started = time.monotonic()
         decoder = module.load_model(weights_path=str(self.directory / f"same_{self.codec}_decoder_f32.npz"), dtype=mx.float32, compile_=False)

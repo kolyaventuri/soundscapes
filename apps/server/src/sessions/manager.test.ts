@@ -87,6 +87,34 @@ it('cancels scene initialization immediately on Stop without starting audio', as
 	expect(manager.debug(session.id).rendering).toBe(false);
 });
 
+it('exposes live preparation without renewing a listener and resumes cancelled preparation in place', async () => {
+	const parseScene = vi.fn<Planner['parseScene']>()
+		.mockImplementationOnce(async () => new Promise(() => {/* Wait for explicit pause. */}))
+		.mockImplementation(async originalPrompt => sceneSchema.parse({
+			originalPrompt, title: 'Park', sleepMode: false, simulatedStart: '2000-01-01T01:00:00Z',
+		}));
+	const {manager, advance} = await setup({busy: false, parseScene, propose: vi.fn()});
+	const {session, listenerId} = manager.create('ambience', 'A park');
+	await vi.waitFor(() => {
+		expect(parseScene).toHaveBeenCalledTimes(1);
+	});
+	advance(120_000);
+	expect(manager.get(session.id)).toMatchObject({ready: false, listenerCount: 0, progress: {stage: 'understanding', estimate: null, elapsedMs: 120_000}});
+	expect(manager.debug(session.id).listeners[0]).toMatchObject({state: 'paused', lastConsumptionAgoSeconds: 120});
+	await manager.pause(session.id, listenerId);
+	expect(manager.get(session.id)).toMatchObject({status: 'idle', progress: {estimateReason: 'paused'}});
+	expect(() => manager.resumePreparation(session.id, randomUUID())).toThrow('Listener not found');
+	manager.resumePreparation(session.id, listenerId);
+	manager.resumePreparation(session.id, listenerId);
+	await vi.waitFor(() => {
+		expect(manager.get(session.id).ready).toBe(true);
+	});
+	expect(parseScene).toHaveBeenCalledTimes(2);
+	expect(manager.get(session.id)).toMatchObject({
+		id: session.id, status: 'idle', listenerCount: 0, scene: {title: 'Park'}, progress: {stage: 'ready'},
+	});
+});
+
 it('keeps playback controls responsive to an in-flight planner and freezes opportunity time while idle', async () => {
 	let cancelled = false;
 	const planner: Planner = {

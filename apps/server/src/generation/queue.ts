@@ -1,6 +1,10 @@
-import {type GeneratedAudio, type SoundGenerator, type SoundRequest} from './contracts.js';
+import {
+	type GeneratedAudio, type SoundGenerator, type SoundRequest, type SoundProgress,
+} from './contracts.js';
 
-type Job = {
+type Observer = {onStart?: () => void; onProgress?: (value: SoundProgress) => void};
+
+type Job = Observer & {
 	request: SoundRequest; signal: AbortSignal; valid: () => boolean; deadlineAt: number;
 	resolve: (audio: GeneratedAudio) => void; reject: (error: unknown) => void; removeAbort: () => void;
 };
@@ -19,7 +23,7 @@ export class GenerationQueue {
 		}));
 	}
 
-	async submit(request: SoundRequest, {signal, valid, deadlineAt}: {signal: AbortSignal; valid: () => boolean; deadlineAt: number}) {
+	async submit(request: SoundRequest, {signal, valid, deadlineAt, ...observer}: Observer & {signal: AbortSignal; valid: () => boolean; deadlineAt: number}) {
 		if (this.closing || signal.aborted || !valid() || deadlineAt <= this.now()) {
 			throw new Error('Sound request is cancelled, idle, or past its deadline');
 		}
@@ -30,7 +34,7 @@ export class GenerationQueue {
 
 		return new Promise<GeneratedAudio>((resolve, reject) => {
 			const job: Job = {
-				request, signal, valid, deadlineAt, resolve, reject, removeAbort() {
+				...observer, request, signal, valid, deadlineAt, resolve, reject, removeAbort() {
 					signal.removeEventListener('abort', cancel);
 				},
 			};
@@ -89,7 +93,12 @@ export class GenerationQueue {
 				}
 
 				const signal = AbortSignal.any([job.signal, abort.signal, AbortSignal.timeout(Math.max(1, Math.ceil(job.deadlineAt - this.now())))]);
-				const audio = await this.generator.generate(job.request, signal);
+				job.onStart?.();
+				const audio = await this.generator.generate(job.request, signal, progress => {
+					if (!signal.aborted && job.valid()) {
+						job.onProgress?.(progress);
+					}
+				});
 				signal.throwIfAborted();
 				if (!job.valid() || job.deadlineAt <= this.now()) {
 					throw new Error('Stale sound result discarded');

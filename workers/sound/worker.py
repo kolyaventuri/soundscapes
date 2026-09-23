@@ -101,6 +101,11 @@ for line in sys.stdin:
         target = root / f"{identifier}.wav"
         started = time.monotonic()
         load_ms = 0
+        def progress(stage, completed=None, total=None):
+            emit({"type": "progress", "id": identifier, "progress": {
+                "stage": stage, "step": None if completed is None else {"completed": completed, "total": total},
+            }})
+        progress("loading")
         if model is None:
             model, manifest = load_model()
             load_ms = (time.monotonic() - started) * 1000
@@ -109,13 +114,15 @@ for line in sys.stdin:
 
         print(f"Generating {manifest['model']}: {duration}s seed={request['seed']} id={identifier}", flush=True)
         if manifest.get("backend") == "mlx":
-            audio, stage_load_ms = model.generate(request["prompt"], duration, request["seed"])
+            audio, stage_load_ms = model.generate(request["prompt"], duration, request["seed"], progress)
             load_ms += stage_load_ms
         else:
             import torch
+            progress("generating")
             with torch.inference_mode():
                 audio = model.generate(prompt=request["prompt"], duration=duration, steps=8, seed=request["seed"], batch_size=1)
             audio = audio[0].to("cpu", dtype=torch.float32).numpy()[:, :duration * 44100]
+        progress("decoding")
         if audio.shape != (2, duration * 44100) or not np.isfinite(audio).all():
             raise ValueError("Generated audio is not finite stereo PCM of the requested duration")
         sf.write(str(target), audio.T, 44100, subtype="FLOAT")

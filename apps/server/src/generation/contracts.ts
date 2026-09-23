@@ -12,9 +12,14 @@ export const generatedAudioSchema = z.strictObject({
 	elapsedMs: z.number().nonnegative(), loadMs: z.number().nonnegative(), resident: z.boolean().optional(), peakRssBytes: z.number().nonnegative(),
 });
 export type GeneratedAudio = z.infer<typeof generatedAudioSchema>;
+export const soundProgressSchema = z.object({
+	stage: z.enum(['loading', 'generating', 'decoding']),
+	step: z.object({completed: z.number().int().min(0).max(8), total: z.literal(8)}).nullable().default(null),
+});
+export type SoundProgress = z.infer<typeof soundProgressSchema>;
 export const workerStateSchema = z.object({pid: z.number().nullable(), loaded: z.boolean(), busy: z.boolean()});
 export type SoundGenerator = {
-	generate: (request: SoundRequest, signal: AbortSignal) => Promise<GeneratedAudio>;
+	generate: (request: SoundRequest, signal: AbortSignal, progress?: (value: SoundProgress) => void) => Promise<GeneratedAudio>;
 	close: () => Promise<void>;
 	diagnostics: () => z.infer<typeof workerStateSchema>;
 };

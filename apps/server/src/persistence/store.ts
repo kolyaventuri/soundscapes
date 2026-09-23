@@ -22,7 +22,7 @@ export class Store {
 		this.db = new DatabaseSync(file);
 		this.db.exec('PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;');
 		const version = this.db.prepare('PRAGMA user_version').get()!.user_version;
-		if (version !== 0 && version !== 1) {
+		if (version !== 0 && version !== 1 && version !== 2) {
 			this.db.close();
 			throw new Error(`Unsupported database version ${String(version)}`);
 		}
@@ -35,6 +35,28 @@ export class Store {
 				CREATE INDEX events_by_session ON events(session_id, playback_ms);
 				PRAGMA user_version=1; COMMIT;`);
 		}
+
+		if (version !== 2) {
+			this.db.exec(`BEGIN IMMEDIATE;
+				CREATE TABLE preparation_timings (id INTEGER PRIMARY KEY, profile TEXT NOT NULL, elapsed_ms REAL NOT NULL);
+				CREATE INDEX timings_by_profile ON preparation_timings(profile, id);
+				PRAGMA user_version=2; COMMIT;`);
+		}
+	}
+
+	recordTiming(profile: string, elapsedMs: number) {
+		if (!Number.isFinite(elapsedMs) || elapsedMs < 0 || profile.length > 512) {
+			throw new Error('Invalid preparation timing');
+		}
+
+		this.db.prepare('INSERT INTO preparation_timings (profile, elapsed_ms) VALUES (?, ?)').run(profile, elapsedMs);
+		this.db.prepare(`DELETE FROM preparation_timings WHERE profile=? AND id NOT IN
+			(SELECT id FROM preparation_timings WHERE profile=? ORDER BY id DESC LIMIT 20)`).run(profile, profile);
+		this.db.exec('DELETE FROM preparation_timings WHERE id NOT IN (SELECT id FROM preparation_timings ORDER BY id DESC LIMIT 512)');
+	}
+
+	timings(profile: string): number[] {
+		return this.db.prepare('SELECT elapsed_ms FROM preparation_timings WHERE profile=? ORDER BY id DESC LIMIT 20').all(profile).map(row => Number(row.elapsed_ms));
 	}
 
 	saveSession(id: string, state: unknown) {

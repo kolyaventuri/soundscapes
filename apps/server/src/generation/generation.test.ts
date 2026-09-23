@@ -127,6 +127,8 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
  if(r.prompt==='crash')process.exit(7);
  if(r.prompt==='malformed'){console.log('invalid json');return;}
  if(r.prompt==='oversized'){console.log('a'.repeat(40000));return;}
+ const progressId=r.prompt==='foreign-progress'?'00000000-0000-4000-8000-000000000000':r.id;
+ console.log(JSON.stringify({type:'progress',id:progressId,progress:{stage:'generating',step:{completed:r.prompt==='invalid-progress'?9:3,total:8}}}));
  console.log(JSON.stringify({type:'result',audio:{id:r.id,path:r.prompt==='wrong-path'?'/tmp/foreign.wav':process.env.SOUNDSCAPES_SOUND_OUTPUT+'/'+r.id+'.wav',
  resident:r.prompt!=='released',model:r.prompt==='wrong-model'?'stable-audio-3-small-music':'stable-audio-3-small-sfx',
  revision:'a'.repeat(40),durationSeconds:r.durationSeconds,sampleRate:44100,channels:2,elapsedMs:1,loadMs:0,peakRssBytes:100}}));
@@ -141,11 +143,19 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
 	return generator;
 }
 
-it.each(['crash', 'malformed', 'oversized', 'wrong-path', 'wrong-model', 'hang'])('reaps a %s worker and permits a clean subsequent request', async mode => {
+it.each(['crash', 'malformed', 'oversized', 'wrong-path', 'wrong-model', 'hang', 'foreign-progress', 'invalid-progress'])('reaps a %s worker and permits a clean subsequent request', async mode => {
 	const generator = await workerHarness();
 	await expect(generator.generate(request('event', mode), new AbortController().signal)).rejects.toThrow();
 	expect(generator.diagnostics()).toEqual({pid: null, loaded: false, busy: false});
 	await expect(generator.generate(request(), new AbortController().signal)).resolves.toMatchObject({durationSeconds: 12});
+});
+
+it('forwards validated progress for the active request without completing it early', async () => {
+	const generator = await workerHarness();
+	const progress = vi.fn();
+	const result = await generator.generate(request(), new AbortController().signal, progress);
+	expect(progress).toHaveBeenCalledExactlyOnceWith({stage: 'generating', step: {completed: 3, total: 8}});
+	expect(result.durationSeconds).toBe(12);
 });
 
 it('kills cancelled inference and unloads a retained idle worker', async () => {

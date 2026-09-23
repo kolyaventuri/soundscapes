@@ -5,7 +5,10 @@ export async function request<T>(
 ): Promise<T> {
 	const response = await fetch(url, {
 		...options,
-		signal: options.signal ?? AbortSignal.timeout(25_000),
+		signal: AbortSignal.any([
+			...(options.signal ? [options.signal] : []),
+			AbortSignal.timeout(25_000),
+		]),
 		...(options.body
 			? {headers: {'Content-Type': 'application/json', ...options.headers}}
 			: {}),

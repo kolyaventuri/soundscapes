@@ -23,6 +23,7 @@ import {EventController, abortable, type PlanningState} from '../planning/contro
 import {
 	planningStateSchema, scheduledEventSchema, type Planner, type ScheduledEvent,
 } from '../planning/contracts.js';
+import {Preparation} from './preparation.js';
 
 export class SessionError extends Error {
 	constructor(public statusCode: number, message: string) {
@@ -54,6 +55,7 @@ type Record = {
 	planningEnabled: boolean;
 	generationEnabled: boolean;
 	preparation: string;
+	progress: Preparation | undefined;
 	sceneReady: boolean;
 	planning: PlanningState;
 	scheduledEvents: ScheduledEvent[];
@@ -133,7 +135,7 @@ export class SessionManager {
 			const saved = savedSchema.parse(value);
 			const session: Record = {
 				...saved, status: saved.status === 'stopped' || saved.status === 'error' ? saved.status : 'idle',
-				eventAssets: [], controller: undefined, initialization: undefined,
+				eventAssets: [], controller: undefined, initialization: undefined, progress: undefined,
 				error: saved.error, activeSince: undefined, renderer: undefined, pending: Promise.resolve(), currentRun: saved.currentRun,
 				listeners: new Map(saved.listeners.map(([id, listener]) => [id, {...listener, state: listener.state === 'playing' ? 'expired' : listener.state}])),
 				runs: new Map(saved.runs.map(id => [id, path.join(this.directory(saved.id), 'hls', id)])),
@@ -173,7 +175,7 @@ export class SessionManager {
 		const session: Record = {
 			id: randomUUID(), mode, scene: {...fixtureScene, title: prompt ? 'Preparing your scene' : fixtureScene.title, originalPrompt: prompt ?? ''},
 			timeline: {seed: Math.floor(Math.random() * 0x1_00_00_00_00), beds: []}, assetIds: [],
-			generationEnabled: Boolean(prompt) && this.config.sound.enabled, preparation: '',
+			generationEnabled: Boolean(prompt) && this.config.sound.enabled, preparation: '', progress: undefined,
 			planningEnabled: Boolean(prompt), sceneReady: !prompt, planning: {nextOpportunityMs: null, opportunities: 0, skipped: 0}, scheduledEvents: [],
 			eventAssets: [], controller: undefined, initialization: prompt ? new AbortController() : undefined,
 			status: 'initializing', createdAt: this.now(), activeSince: undefined,
@@ -204,6 +206,18 @@ export class SessionManager {
 
 	get(id: string) {
 		return this.view(this.record(id));
+	}
+
+	resumePreparation(id: string, listenerId: string) {
+		const session = this.record(id);
+		this.requireUsable(session);
+		this.listener(session, listenerId);
+		if (session.status === 'idle' && !session.currentRun) {
+			this.transition(session, 'initializing');
+			void this.prepare(session);
+		}
+
+		return this.view(session);
 	}
 
 	async play(id: string, listenerId: string) {
@@ -342,7 +356,6 @@ export class SessionManager {
 		const playbackCursorMs = this.elapsed(session);
 		const buffer = session.renderer?.diagnostics?.();
 		return {
-			scene: session.scene,
 			playbackCursorMs, playbackCursorSource: 'server active-time estimate',
 			renderedUntilMs: buffer?.renderedUntilMs ?? playbackCursorMs, committedUntilMs: buffer?.committedUntilMs ?? playbackCursorMs,
 			bufferAheadSeconds: session.renderer?.running && buffer ? Math.max(0, buffer.renderedUntilMs - playbackCursorMs) / 1000 : 0,
@@ -354,7 +367,7 @@ export class SessionManager {
 			generationQueue: this.generation.queue.jobs.filter(job => job.sessionId === session.id),
 			soundWorker: this.generation.generator.diagnostics(),
 			...this.planningDebug(session, playbackCursorMs),
-			...this.view(session), producerPid: session.renderer?.running ? session.renderer.pid : null,
+			...this.view(session), scene: session.scene, producerPid: session.renderer?.running ? session.renderer.pid : null,
 			currentRun: session.currentRun ?? null,
 			idleTimeoutSeconds: this.config.idleTimeoutMs / 1000,
 			listeners: listeners.map(listener => ({
@@ -533,6 +546,8 @@ export class SessionManager {
 		return {
 			id: session.id, mode: session.mode, title: session.mode === 'fixture' ? 'Quiet pink noise' : session.scene.title, status: session.status,
 			audioSource: session.generationEnabled ? 'generated' : 'fixture', preparation: session.preparation,
+			progress: session.progress?.view(session.status === 'initializing', this.generation.queue.jobs.some(job => job.sessionId !== session.id)) ?? null,
+			scene: session.sceneReady && session.planningEnabled ? session.scene : null,
 			ready: session.currentRun !== undefined, rendering: session.renderer?.running ?? false,
 			listenerCount: this.listenerCount(session), createdAt: new Date(session.createdAt).toISOString(),
 			activeElapsedMs: this.elapsed(session),
@@ -542,6 +557,10 @@ export class SessionManager {
 	}
 
 	private transition(session: Record, status: SessionStatus) {
+		if (status !== 'initializing') {
+			session.progress?.freeze();
+		}
+
 		if (status !== 'active') {
 			session.controller?.cancel();
 		}
@@ -594,14 +613,17 @@ export class SessionManager {
 			abort.signal.throwIfAborted();
 			if (!session.sceneReady) {
 				session.preparation = 'Understanding your scene';
+				session.progress!.begin('scene', `planner:${this.config.planner.model}:scene-v2`, 'understanding');
 				const signal = AbortSignal.any([abort.signal, AbortSignal.timeout(this.config.planner.timeoutMs)]);
 				session.scene = await abortable(this.planner.parseScene(session.scene.originalPrompt, signal), signal);
 				session.sceneReady = true;
+				session.progress!.complete();
 				this.save(session);
 			}
 
 			if (session.generationEnabled && session.assetIds.length < 4) {
 				session.preparation = 'Preparing ambience 0 of 4';
+				session.progress!.update('checking');
 				await this.generation.beds(session.scene, {
 					sessionId: session.id, signal: abort.signal, valid: () => !this.closing && session.status === 'initializing',
 				}, assets => {
@@ -609,7 +631,7 @@ export class SessionManager {
 					session.preparation = `Preparing ambience ${assets.length} of 4`;
 					this.onEvent('ambience-prepared', session.id, `${assets.length}/4`);
 					this.save(session);
-				});
+				}, session.progress);
 			}
 
 			abort.signal.throwIfAborted();
@@ -620,8 +642,13 @@ export class SessionManager {
 	}
 
 	private async start(session: Record) {
+		session.progress = new Preparation(this.store, this.now, session.generationEnabled ? 4 : 0);
+		session.progress.completedBeds = session.generationEnabled ? session.assetIds.length : 0;
+		const bufferProfile = `buffer-v1:${session.mode}:${session.generationEnabled ? 'generated' : 'fixture'}`;
+		session.progress.plan([{id: 'buffer', profile: bufferProfile}], !session.generationEnabled || session.assetIds.length >= 4);
 		this.transition(session, 'initializing');
 		await this.prepareResources(session);
+		session.progress.begin('buffer', bufferProfile, 'buffering');
 		if (session.mode === 'fixture') {
 			const fixture = await stat(this.config.fixturePath);
 			if (!fixture.isFile() || fixture.size > 128 * 1024 * 1024) {
@@ -672,6 +699,8 @@ export class SessionManager {
 
 		session.runs.set(runId, directory);
 		await renderer.ready();
+		session.progress.complete();
+		session.progress.update('ready');
 		session.currentRun = runId;
 		session.preparation = '';
 		while (session.runs.size > 2) {

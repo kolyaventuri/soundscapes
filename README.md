@@ -2,7 +2,7 @@
 
 A local procedural generator for environmental and diegetic soundscapes, with optional sleep mode. The intended system combines reusable ambient beds, sparse locally planned/generated events, and continuous HLS playback on an iPhone.
 
-**Current state: Phase 4 local sound generation.** Ollama parses a setting; Stable Audio 3 Medium (MLX on this Mac) creates four contextual 90-second beds and optional sparse events. Validated assets feed continuous AAC/HLS playback and persist in SQLite/filesystem storage for reuse. Existing Phase 3 sessions retain their procedural beds; create a new prompted scene to hear generated audio. Physical listening and multi-hour/eight-hour acceptance remain open. [SPEC.md](SPEC.md) defines v0.1; [PLAN.md](PLAN.md) tracks implementation and acceptance evidence separately.
+**Current state: Phase 5 playback UX in progress.** Ollama parses a setting; Stable Audio 3 Medium (MLX on this Mac) creates four contextual 90-second beds and optional sparse events. Validated assets feed continuous AAC/HLS playback and persist in SQLite/filesystem storage for reuse. Existing Phase 3 sessions retain their procedural beds; create a new prompted scene to hear generated audio. Physical listening and multi-hour/eight-hour acceptance remain open. [SPEC.md](SPEC.md) defines v0.1; [PLAN.md](PLAN.md) tracks implementation and acceptance evidence separately.
 
 ## Run locally
 
@@ -29,6 +29,14 @@ pnpm start
 ```
 
 Open [localhost:3000](http://localhost:3000). Fastify serves the built web client and API. Run the build again after source changes. `/api/health` reports process connectivity and `local-event-planning`; session status reports audio readiness.
+
+## Preparation feedback
+
+Scene preparation now reports live stages, actual generation steps where supported, completed/reused recordings, and elapsed time. All four recordings must pass validation and HLS must be buffered before **Ready to play** appears. Playback still needs an explicit tap. Scene, weather and the simulation clock appear alongside the player.
+
+Approximate time-to-play ranges use successful measurements from this server, separated by model revision, backend, duration, cold/warm worker state, validation and playback buffering. A first run, unknown remaining work, a competing queue, or a timing overrun uses an indeterminate state. Sampling steps are progress within one recording, not an overall completion percentage. SQLite schema v2 retains at most 20 measurements per profile and 512 in total. No historical timings are invented or imported from development benchmarks.
+
+Reloading reads current server state. Connection failures hide stale estimates; successful polling clears the connection error. **Cancel preparation** stops the session. If preparation was paused or interrupted by a server shutdown, **Continue preparing** resumes the same session without marking its listener as playing. `POST /api/sessions/:id/prepare` accepts `{listenerId}`; status and debug polling remain read-only and never renew playback activity.
 
 ## Configuration
 

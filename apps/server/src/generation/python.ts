@@ -6,12 +6,13 @@ import {z} from 'zod';
 import {type AppConfig} from '../config.js';
 import {abortable} from '../planning/controller.js';
 import {
-	generatedAudioSchema, soundRequestSchema, type GeneratedAudio, type SoundGenerator, type SoundRequest,
+	generatedAudioSchema, soundRequestSchema, soundProgressSchema, type GeneratedAudio, type SoundGenerator, type SoundRequest, type SoundProgress,
 } from './contracts.js';
 
 const responseSchema = z.discriminatedUnion('type', [
 	z.object({type: z.literal('ready'), protocol: z.literal(1), network: z.literal('disabled')}),
 	z.object({type: z.literal('result'), audio: generatedAudioSchema}),
+	z.object({type: z.literal('progress'), id: z.uuid(), progress: soundProgressSchema}),
 	z.object({type: z.literal('error'), id: z.string().optional().nullable(), message: z.string().max(2000)}),
 ]);
 
@@ -19,7 +20,7 @@ export class PythonSoundGenerator implements SoundGenerator {
 	private child: ChildProcessWithoutNullStreams | undefined;
 	private exited: Promise<void> = Promise.resolve();
 	private readiness: ReturnType<typeof readiness> | undefined;
-	private pending: {id: string; resolve: (audio: GeneratedAudio) => void; reject: (error: Error) => void} | undefined;
+	private pending: {id: string; resolve: (audio: GeneratedAudio) => void; reject: (error: Error) => void; progress: ((value: SoundProgress) => void) | undefined} | undefined;
 	private loaded = false;
 	private busy = false;
 	private idleTimer: ReturnType<typeof setTimeout> | undefined;
@@ -30,7 +31,7 @@ export class PythonSoundGenerator implements SoundGenerator {
 		return {pid: this.child?.pid ?? null, loaded: this.loaded, busy: this.busy};
 	}
 
-	async generate(request: SoundRequest, cancellation: AbortSignal): Promise<GeneratedAudio> {
+	async generate(request: SoundRequest, cancellation: AbortSignal, progress?: (value: SoundProgress) => void): Promise<GeneratedAudio> {
 		soundRequestSchema.parse(request);
 		if (this.busy) {
 			throw new Error('Sound worker accepts only one request at a time');
@@ -45,7 +46,9 @@ export class PythonSoundGenerator implements SoundGenerator {
 			await abortable(this.readiness!.promise, AbortSignal.any([signal, AbortSignal.timeout(20_000)]));
 			signal.throwIfAborted();
 			const result = new Promise<GeneratedAudio>((resolve, reject) => {
-				this.pending = {id: request.id, resolve, reject};
+				this.pending = {
+					id: request.id, resolve, reject, progress,
+				};
 				this.child!.stdin.write(`${JSON.stringify(request)}\n`, error => {
 					if (error) {
 						reject(error);
@@ -141,14 +144,35 @@ export class PythonSoundGenerator implements SoundGenerator {
 				while (newline >= 0) {
 					const message = responseSchema.parse(JSON.parse(buffer.slice(0, newline)));
 					buffer = buffer.slice(newline + 1);
-					if (message.type === 'ready') {
-						this.readiness?.resolve();
-					} else if (message.type === 'error') {
-						this.pending?.reject(new Error(message.message));
-					} else if (message.audio.id === this.pending?.id) {
-						this.pending.resolve(message.audio);
-					} else {
-						throw new Error('Unexpected sound worker result');
+					switch (message.type) {
+						case 'ready': {
+							this.readiness?.resolve();
+
+							break;
+						}
+
+						case 'progress': {
+							if (message.id !== this.pending?.id) {
+								throw new Error('Unexpected sound worker progress');
+							}
+
+							this.pending.progress?.(message.progress);
+
+							break;
+						}
+
+						case 'error': {
+							this.pending?.reject(new Error(message.message));
+
+							break;
+						}
+
+						case 'result': {if (message.audio.id === this.pending?.id) {
+							this.pending.resolve(message.audio);
+						} else {
+							throw new Error('Unexpected sound worker result');
+						}
+						}
 					}
 
 					newline = buffer.indexOf('\n');

@@ -10,6 +10,7 @@ import {measure, playableAssets} from '../assets/fixtures.js';
 import {runAudioCommand} from '../audio/process.js';
 import {assetSchema, type Asset, type Store} from '../persistence/store.js';
 import {type EventProposal} from '../planning/contracts.js';
+import {type Preparation} from '../sessions/preparation.js';
 import {type GeneratedAudio, type SoundGenerator, type SoundRequest} from './contracts.js';
 import {GenerationQueue} from './queue.js';
 import {PythonSoundGenerator} from './python.js';
@@ -58,15 +59,41 @@ export class GenerationService {
 			.map(async file => rm(path.join(this.config.sound.output, file), {force: true})));
 	}
 
-	async beds(scene: Scene, owner: Owner, progress: (assets: Asset[]) => void) {
+	async beds(scene: Scene, owner: Owner, progress: (assets: Asset[]) => void, preparation?: Preparation) {
 		const assets: Asset[] = [];
-		for (let variant = 0; variant < 4; variant++) {
+		const descriptions = Array.from({length: 4}, (value, variant) => ({
+			kind: 'ambience' as const, durationSeconds: 90, variant, title: `${scene.title} · bed ${variant + 1}`,
+			prompt: soundPrompt(scene, 'A continuous recording of this environment, with its characteristic ongoing activity and natural variation.'),
+		}));
+		const profile = await this.getProfile();
+		const available = await playableAssets(this.config, this.store);
+		const cached = descriptions.map(description => available.find(asset => asset.generation?.assetKey === generationAssetKey(scene, profile, description)));
+		const timingProfile = `sound:${hash(profile)}:90`;
+		let first = true;
+		preparation?.plan(descriptions.flatMap((description, index) => {
+			if (cached[index]) {
+				return [];
+			}
+
+			const temperature = first ? this.workerTemperature() : 'warm';
+			first = false;
+			return [{id: `generate-${index}`, profile: `${timingProfile}:${temperature}`}, {id: `validate-${index}`, profile: `${timingProfile}:validate`}];
+		}));
+		for (const [variant, description] of descriptions.entries()) {
 			// A scene needs four independently seeded beds; sequential work preserves memory headroom.
 			// eslint-disable-next-line no-await-in-loop
-			assets.push(await this.obtain(scene, {
-				kind: 'ambience', durationSeconds: 90, variant, title: `${scene.title} · bed ${variant + 1}`,
-				prompt: soundPrompt(scene, 'A continuous recording of this environment, with its characteristic ongoing activity and natural variation.'),
-			}, owner));
+			const asset = cached[variant] ?? await this.obtain(scene, description, owner, preparation ? {preparation, timingProfile, variant} : undefined);
+			owner.signal.throwIfAborted();
+			if (!owner.valid()) {
+				throw new Error('Sound request owner is idle');
+			}
+
+			assets.push(asset);
+			if (preparation) {
+				preparation.completedBeds = assets.length;
+				preparation.reusedBeds += Number(Boolean(cached[variant]));
+			}
+
 			progress([...assets]);
 		}
 
@@ -90,17 +117,9 @@ export class GenerationService {
 
 	private async obtain(scene: Scene, description: {
 		kind: SoundRequest['kind']; durationSeconds: number; title: string; prompt: string; variant?: number | undefined; category?: NonNullable<EventProposal['category']> | undefined;
-	}, owner: Owner) {
+	}, owner: Owner, tracking?: {preparation: Preparation; timingProfile: string; variant: number}) {
 		const key = sceneKey(scene);
-		this.profile ??= (async () => {
-			const manifest = this.generator instanceof PythonSoundGenerator
-				? z.object({revision: z.string(), runtimeRevision: z.string().optional()}).parse(JSON.parse(await readFile(this.config.sound.manifest, 'utf8')))
-				: {revision: 'injected-adapter'};
-			return JSON.stringify({
-				model: this.config.sound.model, device: this.config.sound.device, ...manifest, prompt: 'scene-v2', levels: 'levels-v1',
-			});
-		})();
-		const assetKey = generationAssetKey(scene, await this.profile, description);
+		const assetKey = generationAssetKey(scene, await this.getProfile(), description);
 		owner.signal.throwIfAborted();
 		if (!owner.valid()) {
 			throw new Error('Sound request owner is idle');
@@ -109,6 +128,12 @@ export class GenerationService {
 		const available = await playableAssets(this.config, this.store, description.kind);
 		const existing = available.find(asset => asset.generation?.assetKey === assetKey);
 		if (existing) {
+			if (tracking) {
+				tracking.preparation.skip(`generate-${tracking.variant}`);
+				tracking.preparation.skip(`validate-${tracking.variant}`);
+				tracking.preparation.reusedBeds++;
+			}
+
 			return existing;
 		}
 
@@ -118,9 +143,17 @@ export class GenerationService {
 		};
 		const quarantine = path.join(this.config.sound.output, `${request.id}.wav`);
 		try {
+			tracking?.preparation.update('queued');
 			const audio = await this.queue.submit(request, {
 				...owner, deadlineAt: owner.deadlineAt ?? Date.now() + this.config.sound.timeoutMs,
+				onStart: () => tracking?.preparation.begin(`generate-${tracking.variant}`, `${tracking.timingProfile}:${this.workerTemperature()}`, 'loading'),
+				onProgress: value => tracking?.preparation.update(value.stage, value.step),
 			});
+			if (tracking) {
+				tracking.preparation.complete();
+				tracking.preparation.begin(`validate-${tracking.variant}`, `${tracking.timingProfile}:validate`, 'validating');
+			}
+
 			const asset = await this.validate(audio, request, owner.signal, {
 				title: description.title, sceneKey: key, assetKey, variant: description.variant, category: description.category,
 			});
@@ -129,10 +162,28 @@ export class GenerationService {
 				throw new Error('Sound finished after its owner or opportunity expired');
 			}
 
+			tracking?.preparation.complete();
 			return asset;
 		} finally {
 			await rm(quarantine, {force: true});
 		}
+	}
+
+	private workerTemperature() {
+		const state = this.generator.diagnostics();
+		return state.pid && (this.config.sound.device === 'mlx' || state.loaded) ? 'warm' : 'cold';
+	}
+
+	private async getProfile() {
+		this.profile ??= (async () => {
+			const manifest = this.generator instanceof PythonSoundGenerator
+				? z.object({revision: z.string(), runtimeRevision: z.string().optional()}).parse(JSON.parse(await readFile(this.config.sound.manifest, 'utf8')))
+				: {revision: 'injected-adapter'};
+			return JSON.stringify({
+				model: this.config.sound.model, device: this.config.sound.device, ...manifest, prompt: 'scene-v2', levels: 'levels-v1',
+			});
+		})();
+		return this.profile;
 	}
 
 	private async validate(audio: GeneratedAudio, request: SoundRequest, signal: AbortSignal, metadata: {
