@@ -47,7 +47,8 @@ export const startRenderer: RendererFactory = async options => {
 		'0:a:0',
 		'-vn',
 		'-af',
-		'alimiter=limit=0.063:level=false:attack=5:release=50',
+		// Fixed +12 dB test boost; user-adjustable volume comes later.
+		'volume=4,alimiter=limit=0.25:level=false:attack=5:release=50',
 		'-ar',
 		'44100',
 		'-ac',
