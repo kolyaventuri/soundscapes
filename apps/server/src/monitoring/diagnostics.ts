@@ -26,6 +26,7 @@ export class Diagnostics {
 		return {
 			instanceId: this.instanceId, startedAt: this.startedAt, pid: process.pid, hostname: hostname(), nodeVersion: process.version,
 			dataDirectory: config.dataDirectory, idleTimeoutSeconds: config.idleTimeoutMs / 1000,
+			plannerConfiguration: config.planner,
 			memory: process.memoryUsage(), cpu: process.cpuUsage(), uptimeSeconds: process.uptime(),
 			latestSequence: this.sequence, events: [...this.events],
 		};

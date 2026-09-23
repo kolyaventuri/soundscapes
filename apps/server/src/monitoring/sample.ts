@@ -4,6 +4,7 @@ import {hostname} from 'node:os';
 import path from 'node:path';
 import {promisify} from 'node:util';
 import {z} from 'zod';
+import {delayBucketsSchema} from '../planning/contracts.js';
 import {sessionDiskUsage, type DiskUsage} from './storage.js';
 
 const execute = promisify(execFile);
@@ -11,6 +12,9 @@ const nonnegative = z.number().nonnegative();
 const runtimeSchema = z.object({
 	instanceId: z.uuid(), startedAt: z.iso.datetime(), pid: z.number().int().positive(), hostname: z.string(), nodeVersion: z.string(),
 	dataDirectory: z.string(), idleTimeoutSeconds: nonnegative,
+	plannerConfiguration: z.object({
+		url: z.url(), model: z.string().max(120), timeoutMs: nonnegative, skipProbability: z.number().min(0).max(1), delayScale: nonnegative, delayBuckets: delayBucketsSchema,
+	}).optional(),
 	memory: z.object({rss: nonnegative, heapUsed: nonnegative, external: nonnegative}),
 	cpu: z.object({user: nonnegative, system: nonnegative}), uptimeSeconds: nonnegative,
 	latestSequence: z.number().int().nonnegative(),
@@ -25,6 +29,11 @@ const sessionDebugSchema = z.object({
 	bufferAheadSeconds: nonnegative, queuedPcmChunks: nonnegative, idleTimeoutSeconds: nonnegative,
 	bufferLimitsSeconds: z.object({minimum: nonnegative, target: nonnegative, maximum: nonnegative}),
 	scheduledBeds: z.array(z.object({assetId: z.uuid(), startMs: nonnegative, durationMs: nonnegative})).max(256),
+	scheduledEvents: z.array(z.object({assetId: z.uuid(), startMs: nonnegative, durationMs: nonnegative})).max(32).optional(),
+	planning: z.object({
+		enabled: z.boolean(), busy: z.boolean(), model: z.string().max(120), opportunities: nonnegative, skipped: nonnegative, nextOpportunityMs: nonnegative.nullable(),
+	}).optional(),
+	modelState: z.object({plannerRequestActive: z.boolean(), residency: z.string().max(128)}).optional(),
 	listeners: z.array(z.object({state: z.enum(['playing', 'paused', 'expired']), lastConsumptionAgoSeconds: z.number()})).max(16),
 	error: z.string().max(8192).optional(),
 });

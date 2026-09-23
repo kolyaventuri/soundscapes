@@ -1,0 +1,75 @@
+import {sceneSchema} from '@soundscapes/shared';
+import {
+	afterEach, expect, it, vi,
+} from 'vitest';
+import {readConfig} from '../config.js';
+import {OllamaPlanner} from './ollama.js';
+
+afterEach(() => {
+	vi.unstubAllGlobals();
+});
+const scene = sceneSchema.parse({title: 'Quiet park', sleepMode: true, simulatedStart: '1932-10-01T01:00:00Z'});
+const context = {
+	scene, simulatedTime: scene.simulatedStart, elapsedMs: 0, ambientState: [], recentEvents: [], library: [], earliestPlaybackMs: 90_000,
+};
+const skip = {
+	decision: 'skip', description: '', assetId: '', category: 'none', durationSeconds: 0, prominence: 0, reason: 'No matching asset',
+};
+const response = (content: unknown, doneReason = 'stop') => new Response(JSON.stringify({done: true, done_reason: doneReason, message: {content: JSON.stringify(content)}}));
+
+it('uses constrained local requests, unloads after each request, and converts explicit skips to null', async () => {
+	const fetch = vi.fn<(url: string, init: RequestInit) => Promise<Response>>(async () => response(skip));
+	vi.stubGlobal('fetch', fetch);
+	const planner = new OllamaPlanner(readConfig({}).planner);
+	expect(await planner.propose(context, new AbortController().signal)).toMatchObject({event: null, assetId: null});
+	expect(fetch.mock.calls[0]![0]).toBe('http://127.0.0.1:11434/api/chat');
+	expect(fetch.mock.calls[0]![1]).toMatchObject({method: 'POST', redirect: 'error'});
+	expect(fetch.mock.calls[0]![1].body).toContain('"keep_alive":0');
+	expect(planner.busy).toBe(false);
+});
+
+it.each(['malformed', 'truncated', 'oversized', 'http-error'])('rejects %s model responses and releases the single-flight slot', async mode => {
+	vi.stubGlobal('fetch', vi.fn(async () => {
+		if (mode === 'http-error') {
+			return new Response('', {status: 503});
+		}
+
+		if (mode === 'oversized') {
+			return new Response('x'.repeat(129 * 1024));
+		}
+
+		return response(mode === 'malformed' ? {decision: 'invent'} : skip, mode === 'truncated' ? 'length' : 'stop');
+	}));
+	const planner = new OllamaPlanner(readConfig({}).planner);
+	await expect(planner.propose(context, new AbortController().signal)).rejects.toThrow();
+	expect(planner.busy).toBe(false);
+});
+
+it('preserves the original prompt, applies missing calendar defaults, and rejects impossible dates', async () => {
+	const parsed = {
+		...scene, year: 1932, calendar: {
+			month: 10, day: null, hour: 1, minute: 0,
+		},
+	};
+	vi.stubGlobal('fetch', vi.fn(async () => response(parsed)));
+	const planner = new OllamaPlanner(readConfig({}).planner);
+	expect(await planner.parseScene('Park in October 1932', new AbortController().signal)).toMatchObject({
+		originalPrompt: 'Park in October 1932', year: 1932, simulatedStart: '1932-10-01T01:00:00Z',
+	});
+	vi.stubGlobal('fetch', vi.fn(async () => response({
+		...parsed, calendar: {
+			month: 2, day: 30, hour: 1, minute: 0,
+		},
+	})));
+	await expect(planner.parseScene('Bad date', new AbortController().signal)).rejects.toThrow('invalid calendar');
+});
+
+it('rejects remote planner origins and invalid opportunity distributions', () => {
+	for (const url of ['https://example.com', 'http://127.0.0.1:11434/api', 'http://user:password@localhost:11434']) {
+		expect(() => readConfig({OLLAMA_URL: url})).toThrow('local loopback');
+	}
+
+	for (const buckets of [[{weight: 0.5, minimumSeconds: 1, maximumSeconds: 2}], [{weight: 1, minimumSeconds: 3, maximumSeconds: 2}]]) {
+		expect(() => readConfig({EVENT_DELAY_BUCKETS: JSON.stringify(buckets)})).toThrow();
+	}
+});

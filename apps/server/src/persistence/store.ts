@@ -1,5 +1,6 @@
 import {DatabaseSync} from 'node:sqlite';
 import {z} from 'zod';
+import {eventCategorySchema} from '@soundscapes/shared';
 
 export const assetSchema = z.object({
 	id: z.uuid(), kind: z.enum(['ambience', 'event']), title: z.string(),
@@ -7,6 +8,7 @@ export const assetSchema = z.object({
 	durationMs: z.number().positive().max(120_000), sampleRate: z.literal(44_100), channels: z.literal(2),
 	peakDb: z.number().max(-12), meanDb: z.number(), source: z.string(),
 	usageCount: z.number().int().nonnegative().default(0), lastUsedAt: z.string().nullable().default(null),
+	event: z.object({category: eventCategorySchema, tags: z.array(z.string().max(80)).max(12), reviewedSleepSafe: z.literal(true)}).optional(),
 });
 export type Asset = z.infer<typeof assetSchema>;
 
@@ -35,6 +37,17 @@ export class Store {
 
 	saveSession(id: string, state: unknown) {
 		this.db.prepare('INSERT INTO sessions VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET state=excluded.state').run(id, JSON.stringify(state));
+	}
+
+	transaction(work: () => void) {
+		this.db.exec('BEGIN IMMEDIATE');
+		try {
+			work();
+			this.db.exec('COMMIT');
+		} catch (error) {
+			this.db.exec('ROLLBACK');
+			throw error;
+		}
 	}
 
 	loadSessions(): unknown[] {
@@ -66,11 +79,11 @@ export class Store {
 	addEvent(id: string, sessionId: string, playbackMs: number, data: unknown) {
 		this.db.prepare('INSERT INTO events VALUES (?, ?, ?, ?)').run(id, sessionId, playbackMs, JSON.stringify(data));
 		this.db.prepare(`DELETE FROM events WHERE session_id=? AND id NOT IN
-			(SELECT id FROM events WHERE session_id=? ORDER BY playback_ms DESC LIMIT 30) AND playback_ms < ?`).run(sessionId, sessionId, playbackMs - 3_600_000);
+			(SELECT id FROM events WHERE session_id=? ORDER BY playback_ms DESC LIMIT 30)`).run(sessionId, sessionId);
 	}
 
 	events(sessionId: string): unknown[] {
-		return this.db.prepare('SELECT data FROM events WHERE session_id=? ORDER BY playback_ms DESC LIMIT 100').all().map(row => JSON.parse(String(row.data)) as unknown);
+		return this.db.prepare('SELECT data FROM events WHERE session_id=? ORDER BY playback_ms DESC LIMIT 30').all(sessionId).map(row => JSON.parse(String(row.data)) as unknown);
 	}
 
 	close() {

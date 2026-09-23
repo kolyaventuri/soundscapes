@@ -2,6 +2,7 @@ import {execFile} from 'node:child_process';
 import path from 'node:path';
 import {promisify} from 'node:util';
 import {type Asset} from '../persistence/store.js';
+import {type ScheduledEvent} from '../planning/contracts.js';
 import {type Bed} from './timeline.js';
 
 const execute = promisify(execFile);
@@ -11,7 +12,8 @@ export const bytesPerSecond = 44_100 * 2 * 2;
 // Each chunk is a slice of the same absolute envelopes, so fades cross chunk
 // boundaries without restarting. DSP stays in FFmpeg; one continuous encoder
 // applies the output limiter and preserves AAC state between PCM chunks.
-export function mixArguments({beds, assets, root, startMs, durationMs, output}: {beds: Bed[]; assets: Asset[]; root: string; startMs: number; durationMs: number; output: string}) {
+type MixOptions = {beds: Bed[]; assets: Asset[]; events?: ScheduledEvent[]; root: string; startMs: number; durationMs: number; output: string};
+export function mixArguments({beds, assets, events = [], root, startMs, durationMs, output}: MixOptions) {
 	const overlap = beds.filter(bed => bed.startMs < startMs + durationMs && bed.startMs + bed.durationMs > startMs);
 	if (overlap.length === 0) {
 		throw new Error('Timeline has no audio at the requested position');
@@ -34,8 +36,38 @@ export function mixArguments({beds, assets, root, startMs, durationMs, output}: 
 		filters.push(`[${index}:a]${fadeIn}${fadeOut}atrim=start=${offset}:duration=${durationMs / 1000},asetpts=PTS-STARTPTS,adelay=${delay}:all=1[a${index}]`);
 	}
 
-	filters.push(`${overlap.map((bed, index) => `[a${index}]`).join('')}amix=inputs=${overlap.length}:normalize=0:dropout_transition=0,apad,atrim=duration=${durationMs / 1000}[out]`);
-	return [...args, '-filter_complex', filters.join(';'), '-map', '[out]', '-ar', '44100', '-ac', '2', '-f', 's16le', output];
+	const labels = overlap.map((bed, index) => `[a${index}]`);
+	for (const event of events.filter(event => event.startMs < startMs + durationMs && event.startMs + event.durationMs > startMs)) {
+		const asset = assets.find(asset => asset.id === event.assetId && asset.kind === 'event');
+		if (!asset) {
+			// Missing optional events must not interrupt the bed.
+			continue;
+		}
+
+		const index = labels.length;
+		args.push('-i', path.join(root, asset.file));
+		const offset = Math.max(0, startMs - event.startMs) / 1000;
+		const delay = Math.max(0, event.startMs - startMs);
+		const fade = Math.min(event.fadeMs, event.durationMs / 2) / 1000;
+		const processing = [
+			`lowpass=f=${event.lowpassHz}`,
+			`volume=${event.gain}`,
+			`pan=stereo|c0=${1 - Math.max(0, event.pan)}*c0|c1=${1 + Math.min(0, event.pan)}*c1`,
+			`afade=t=in:d=${fade}`,
+			`afade=t=out:st=${(event.durationMs / 1000) - fade}:d=${fade}`,
+			`atrim=start=${offset}:end=${Math.min(event.durationMs / 1000, offset + (durationMs / 1000))}`,
+			'asetpts=PTS-STARTPTS',
+			`adelay=${delay}:all=1`,
+		];
+		filters.push(`[${index}:a]${processing.join(',')}[a${index}]`);
+		labels.push(`[a${index}]`);
+	}
+
+	// Some FFmpeg builds lose usable timestamps when a crossfading input ends
+	// after a fractional seek. Bound by sample count, never by those timestamps.
+	const frames = Math.round(durationMs * 44.1);
+	filters.push(`${labels.join('')}amix=inputs=${labels.length}:normalize=0:dropout_transition=0,apad=whole_len=${frames},atrim=end_sample=${frames},asetpts=N/SR/TB[out]`);
+	return [...args, '-filter_complex', filters.join(';'), '-map', '[out]', '-ar', '44100', '-ac', '2', '-f', 's16le', '-fs', String(frames * 4), output];
 }
 
 export async function renderChunk(ffmpeg: string, args: string[], signal: AbortSignal) {

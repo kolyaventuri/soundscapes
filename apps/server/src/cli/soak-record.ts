@@ -75,7 +75,7 @@ async function main() {
 		notes: [
 			'Source revision comes from the recorder checkout; it does not certify the server build. Build before starting the server and do not rebuild during the run.',
 			'Local server/descendant process samples may miss brief mixer jobs. FFmpeg CPU is the platform ps estimate, not an interval measurement.',
-			'Session disk excludes reusable assets, database, and recorder logs. GPU measurement is absent; the current pipeline has no inference.',
+			'Session disk excludes reusable assets, database, and recorder logs. The separate Ollama process and its GPU/RSS allocation are not measured here.',
 			'The process-local journal can lose crash details or overflow between polls. Restarts and observed journal gaps are flagged.',
 			'Only debug GETs are made. Server consumption does not prove audible playback.',
 		],

@@ -23,6 +23,10 @@ function sample(seconds: number): Sample {
 			currentRun: runId, playbackCursorMs: seconds * 1000, renderedUntilMs: (seconds + 100) * 1000, committedUntilMs: (seconds + 30) * 1000,
 			bufferAheadSeconds: 100, queuedPcmChunks: 3, idleTimeoutSeconds: 90, bufferLimitsSeconds: {minimum: 45, target: 90, maximum: 180},
 			scheduledBeds: [], listeners: [{state: 'playing', lastConsumptionAgoSeconds: 3}],
+			scheduledEvents: [], planning: {
+				enabled: true, busy: false, model: 'local-test', opportunities: Math.floor(seconds / 300), skipped: 0, nextOpportunityMs: (seconds + 300) * 1000,
+			},
+			modelState: {plannerRequestActive: false, residency: 'not-polled'},
 		},
 		disk: {
 			files: 25, bytes: 1024, hlsFiles: 20, hlsBytes: 512, pcmFiles: 3, pcmBytes: 512, truncated: false,
@@ -44,6 +48,9 @@ it('bounds the diagnostic journal and error detail while preserving sequence num
 	expect(snapshot.events[0]?.sequence).toBe(73);
 	expect(snapshot.events.at(-1)?.sequence).toBe(200);
 	expect(snapshot.events[0]?.detail).toHaveLength(4096);
+	expect(snapshot.plannerConfiguration).toMatchObject({
+		model: 'qwen3:8b', timeoutMs: 45_000, skipProbability: 0.25, delayScale: 1,
+	});
 });
 
 it('keeps full-run aggregates without growing arrays during an eight-hour simulated recording', () => {
@@ -55,6 +62,8 @@ it('keeps full-run aggregates without growing arrays during an eight-hour simula
 	expect(summary.issues).toEqual({});
 	expect(summary.completeSamples).toBe(961);
 	expect(summary.json().metrics.serverCpuPercent?.mean).toBeCloseTo(0.1);
+	expect(summary.json().metrics.eventOpportunities?.last).toBe(96);
+	expect(summary.json().metrics.scheduledEventCount?.maximum).toBe(0);
 	expect(JSON.stringify(summary.json()).length).toBeLessThan(6000);
 });
 

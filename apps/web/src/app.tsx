@@ -27,11 +27,11 @@ function restoreConnection() {
 
 function statusLabel(session: Session) {
 	const labels = {
-		initializing: 'Preparing audio…',
+		initializing: 'Preparing your stream…',
 		active: `Streaming · ${session.listenerCount} listening`,
 		idle: 'Ready · rendering paused',
 		stopped: 'Session stopped',
-		error: 'Audio preparation failed',
+		error: 'Preparation failed',
 	};
 	return labels[session.status];
 }
@@ -80,12 +80,21 @@ function SessionPlayback({
 	);
 }
 
+function preparationLabel(join: boolean, prompt: string) {
+	return join
+		? 'Join this stream'
+		: prompt.trim()
+			? 'Prepare scene'
+			: 'Prepare test stream';
+}
+
 export function App() {
 	const [connection, setConnection] = useState<ListenerSession | undefined>(
 		restoreConnection,
 	);
 	const [error, setError] = useState('');
 	const [busy, setBusy] = useState(false);
+	const [prompt, setPrompt] = useState('');
 	const id = connection?.session.id;
 	const updateSession = useCallback((session: Session) => {
 		setConnection((current) =>
@@ -162,7 +171,10 @@ export function App() {
 						)
 					: await request('/api/sessions', listenerSessionSchema, {
 							method: 'POST',
-							body: JSON.stringify({mode: 'ambience'}),
+							body: JSON.stringify({
+								mode: 'ambience',
+								...(prompt.trim() ? {prompt: prompt.trim()} : {}),
+							}),
 						});
 			setConnection(result);
 			globalThis.history.replaceState(
@@ -214,19 +226,21 @@ export function App() {
 	const join =
 		!connection &&
 		new URLSearchParams(globalThis.location.search).has('session');
-	const prepareLabel = join ? 'Join this stream' : 'Prepare test stream';
+	const prepareLabel = preparationLabel(join, prompt);
+	const showSetup = !session || terminal;
+	const message = error || session?.error;
 	return (
 		<main>
 			<header>
 				<img src="/icon.svg" alt="" width="40" height="40" />
 				<span>Soundscapes</span>
-				<span className="phase-label">Playback prototype</span>
+				<span className="phase-label">Local scene prototype</span>
 			</header>
 			<section aria-labelledby="welcome-title">
 				<p className="eyebrow">A quieter kind of night</p>
 				<h1 id="welcome-title">
 					{session ? (
-						'A little quiet.'
+						session.title
 					) : (
 						<>
 							A place to
@@ -239,13 +253,30 @@ export function App() {
 					Soft ambient air, streaming from your local server.
 				</p>
 				<div className="notice">
-					<p className="notice-title">First, a quiet playback test.</p>
+					<p className="notice-title">A setting for the quiet.</p>
 					<p>
-						Four local ambience beds blend slowly into one another. Scene
-						descriptions and AI ambience come later.
+						Describe a place to guide occasional sounds from your local event
+						library. For now, every setting uses the same soft-air test
+						ambience; scene-specific audio comes later. Leave the description
+						blank for a playback test without a planner.
 					</p>
 				</div>
-				{!session || terminal ? (
+				{showSetup && !join ? (
+					<label className="scene-prompt">
+						Scene description
+						<textarea
+							value={prompt}
+							maxLength={4000}
+							rows={4}
+							disabled={busy}
+							placeholder="Central Park, October 1932, around 1 AM. Cool autumn air, light wind, sparse distant activity."
+							onChange={(event) => {
+								setPrompt(event.target.value);
+							}}
+						/>
+					</label>
+				) : null}
+				{showSetup ? (
 					<button
 						className="primary"
 						type="button"
@@ -266,9 +297,9 @@ export function App() {
 						onError={setError}
 					/>
 				) : null}
-				{error || session?.error ? (
+				{message ? (
 					<p className="error" role="alert">
-						{error || session?.error}
+						{message}
 					</p>
 				) : null}
 				{error ? <a href="/">Start a new test stream</a> : null}

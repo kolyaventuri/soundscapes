@@ -6,6 +6,7 @@ import {type Writable} from 'node:stream';
 import {setTimeout as delay} from 'node:timers/promises';
 import {startRenderer, type Renderer, type RendererOptions} from '../audio/hls.js';
 import {type Asset} from '../persistence/store.js';
+import {type ScheduledEvent} from '../planning/contracts.js';
 import {
 	bytesPerSecond, chunkMs, mixArguments, renderChunk,
 } from './mix.js';
@@ -17,8 +18,11 @@ type Options = RendererOptions & {
 	temporary: string;
 	assets: Asset[];
 	timeline: TimelineState;
+	events?: ScheduledEvent[];
+	eventAssets?: Asset[];
 	playbackMs: () => number;
 	onPlan: (selected: Asset[]) => void;
+	onOptionalFailure?: (error: unknown) => void;
 };
 
 export async function startAmbienceRenderer(options: Options): Promise<Renderer> {
@@ -28,19 +32,38 @@ export async function startAmbienceRenderer(options: Options): Promise<Renderer>
 	const chunks = new Map<number, string>();
 	let renderedUntilMs = offsetMs;
 	let committedUntilMs = offsetMs;
+	let mixingUntilMs = offsetMs;
 	let feeding = Promise.resolve();
 	let producing = Promise.resolve();
 	let input: Writable | undefined;
 	let nextChunk = 0;
 
 	async function produce() {
+		// Reserve this chunk before yielding: new overlays can only enter later chunks.
+		mixingUntilMs = renderedUntilMs + chunkMs;
 		const selected: Asset[] = [];
 		extendTimeline(options.timeline, options.assets, {untilMs: renderedUntilMs + chunkMs, playbackMs: options.playbackMs(), selected: asset => selected.push(asset)});
 		options.onPlan(selected);
 		const file = path.join(options.temporary, `chunk-${nextChunk}.pcm`);
-		await renderChunk(options.ffmpegPath, mixArguments({
-			beds: options.timeline.beds, assets: options.assets, root: options.root, startMs: renderedUntilMs, durationMs: chunkMs, output: file,
-		}), abort.signal);
+		const events = (options.events ?? []).filter(event => event.startMs < mixingUntilMs && event.startMs + event.durationMs > renderedUntilMs);
+		const mix = {
+			beds: options.timeline.beds, assets: [...options.assets, ...options.eventAssets ?? []], root: options.root, startMs: renderedUntilMs, durationMs: chunkMs, output: file,
+		};
+		try {
+			await renderChunk(options.ffmpegPath, mixArguments({...mix, events}), abort.signal);
+		} catch (error) {
+			if (abort.signal.aborted || events.length === 0) {
+				throw error;
+			}
+
+			// A missing/broken optional WAV must not take the bed down with it.
+			const ids = new Set(events.map(event => event.id));
+			const retained = options.events!.filter(event => !ids.has(event.id));
+			options.events!.splice(0, options.events!.length, ...retained);
+			options.onOptionalFailure?.(error);
+			await renderChunk(options.ffmpegPath, mixArguments(mix), abort.signal);
+		}
+
 		const metadata = await stat(file);
 		if (metadata.size !== bytesPerSecond * chunkMs / 1000) {
 			throw new Error('Mixer returned an incomplete PCM chunk');
@@ -126,6 +149,7 @@ export async function startAmbienceRenderer(options: Options): Promise<Renderer>
 		});
 		return {
 			...renderer,
+			eventStartMs: () => Math.max(renderedUntilMs, mixingUntilMs, committedUntilMs) + 1000,
 			get running() {
 				return renderer.running;
 			},

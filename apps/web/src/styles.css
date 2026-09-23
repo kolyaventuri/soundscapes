@@ -42,3 +42,6 @@ summary { cursor: pointer; }
 .stop { margin-top: 16px; font-size: 13px; }
 .error { color: #f0c3ac; line-height: 1.6; font-size: 14px; }
 a { color: #cbd8b7; }
+.scene-prompt { display: block; margin-top: 28px; color: #becac6; font-size: 14px; }
+.scene-prompt textarea { display: block; width: 100%; resize: vertical; margin-top: 10px; padding: 12px; border: 1px solid #809477; border-radius: 8px; background: #163031; color: #e9ecdf; font: inherit; line-height: 1.6; }
+.scene-prompt textarea:focus-visible { outline: 2px solid #cbd8b7; outline-offset: 3px; }

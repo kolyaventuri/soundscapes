@@ -67,7 +67,7 @@ export async function buildApp({logger = false, webRoot, config = readConfig(), 
 	}, async (): Promise<HealthResponse> => ({
 		status: 'ok',
 		service: 'soundscapes',
-		stage: 'procedural-ambience',
+		stage: 'local-event-planning',
 	}));
 	registerSessionRoutes(app, manager);
 	app.get('/api/debug/monitoring', async () => diagnostics.snapshot(config));

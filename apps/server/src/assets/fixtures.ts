@@ -9,7 +9,7 @@ import {assetSchema, type Store, type Asset} from '../persistence/store.js';
 
 const probeSchema = z.object({
 	streams: z.array(z.object({
-		codec_name: z.literal('pcm_s16le'), sample_rate: z.literal('44100'), channels: z.literal(2), duration: z.coerce.number().min(60).max(120),
+		codec_name: z.literal('pcm_s16le'), sample_rate: z.literal('44100'), channels: z.literal(2), duration: z.coerce.number().min(2).max(120),
 	})).length(1),
 });
 
@@ -111,9 +111,9 @@ async function createOne(index: number, variant: {title: string; cutoff: number;
 	}
 }
 
-export async function playableAssets(config: AppConfig, store: Store): Promise<Asset[]> {
+export async function playableAssets(config: AppConfig, store: Store, kind: Asset['kind'] = 'ambience'): Promise<Asset[]> {
 	const available: Asset[] = [];
-	for (const asset of store.assets().filter(asset => asset.kind === 'ambience')) {
+	for (const asset of store.assets().filter(asset => asset.kind === kind)) {
 		try {
 			// eslint-disable-next-line no-await-in-loop -- The library is small; don't flood the filesystem.
 			const file = await stat(path.join(config.dataDirectory, asset.file));

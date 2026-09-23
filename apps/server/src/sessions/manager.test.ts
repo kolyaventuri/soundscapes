@@ -4,7 +4,7 @@ import {
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
-import {listenerSessionSchema} from '@soundscapes/shared';
+import {listenerSessionSchema, sceneSchema} from '@soundscapes/shared';
 import {
 	afterEach, expect, it, vi,
 } from 'vitest';
@@ -12,6 +12,7 @@ import {buildApp} from '../app.js';
 import {type Renderer, type RendererOptions} from '../audio/hls.js';
 import {readConfig} from '../config.js';
 import {Store} from '../persistence/store.js';
+import {type Planner} from '../planning/contracts.js';
 import {SessionManager} from './manager.js';
 
 const cleanup: Array<() => Promise<void>> = [];
@@ -19,7 +20,7 @@ afterEach(async () => {
 	await Promise.all(cleanup.splice(0).map(async dispose => dispose()));
 });
 
-async function setup() {
+async function setup(planner?: Planner) {
 	const directory = await mkdtemp(path.join(tmpdir(), 'soundscapes-session-'));
 	const config = {...readConfig({}), dataDirectory: directory, fixturePath: path.join(directory, 'fixture.wav')};
 	await writeFile(config.fixturePath, 'fixture');
@@ -46,6 +47,7 @@ async function setup() {
 	});
 	const manager = new SessionManager({
 		config, store: new Store(path.join(directory, 'test.sqlite')), rendererFactory: factory, now: () => now, automaticWatchdog: false,
+		...(planner ? {planner} : {}),
 	});
 	cleanup.push(async () => {
 		await manager.close();
@@ -72,6 +74,51 @@ it('bounds preparation, stays idle without listeners, and never treats polling a
 	await manager.sweep();
 	expect(factory).toHaveBeenCalledTimes(1);
 	expect(renderers.every(renderer => !renderer.running)).toBe(true);
+});
+
+it('cancels scene initialization immediately on Stop without starting audio', async () => {
+	const parseScene = vi.fn<Planner['parseScene']>(async () => new Promise(() => {/* Wait for cancellation. */}));
+	const {manager, factory} = await setup({busy: false, parseScene, propose: vi.fn()});
+	const {session} = manager.create('ambience', 'Quiet autumn park');
+	await Promise.resolve();
+	const stopped = await manager.stop(session.id);
+	expect(stopped.status).toBe('stopped');
+	expect(factory).not.toHaveBeenCalled();
+	expect(manager.debug(session.id).rendering).toBe(false);
+});
+
+it('keeps playback controls responsive to an in-flight planner and freezes opportunity time while idle', async () => {
+	let cancelled = false;
+	const planner: Planner = {
+		busy: false,
+		async parseScene(originalPrompt) {
+			return sceneSchema.parse({
+				title: 'Autumn park', originalPrompt, sleepMode: true, simulatedStart: '1932-10-01T01:00:00Z',
+			});
+		},
+		async propose(context, signal) {
+			signal.addEventListener('abort', () => {
+				cancelled = true;
+			}, {once: true});
+			return new Promise(() => {/* Model deliberately never resolves. */});
+		},
+	};
+	const {manager, config, advance} = await setup(planner);
+	config.planner.skipProbability = 0;
+	config.planner.delayBuckets = [{weight: 1, minimumSeconds: 1, maximumSeconds: 1}];
+	const {session, listenerId} = manager.create('ambience', 'Quiet autumn park');
+	await manager.play(session.id, listenerId);
+	await manager.sweep();
+	advance(1100);
+	await manager.sweep();
+	expect(manager.debug(session.id).planning.busy).toBe(true);
+	await manager.pause(session.id, listenerId);
+	expect(cancelled).toBe(true);
+	const remaining = manager.debug(session.id).nextEventOpportunitySeconds;
+	advance(3_600_000);
+	await manager.sweep();
+	expect(manager.debug(session.id).nextEventOpportunitySeconds).toBe(remaining);
+	expect(manager.debug(session.id).scheduledEvents).toEqual([]);
 });
 
 it('shares one producer, pauses per listener, freezes time, and rejects stale revival after an explicit pause', async () => {
@@ -258,6 +305,22 @@ it('recovers session identity, listener controls, elapsed time, and HLS after no
 		await restored.close();
 	}
 });
+
+it('expires other listeners while a scene parser is still pending', async () => {
+	const planner: Planner = {
+		busy: true,
+		parseScene: async () => new Promise(() => {/* Cancelled by shutdown; must not block the watchdog. */}),
+		propose: async () => new Promise(() => {/* No active planning session in this test. */}),
+	};
+	const {manager, advance} = await setup(planner);
+	const preparing = manager.create('ambience', 'A quiet park');
+	const playing = manager.create('fixture');
+	await manager.play(playing.session.id, playing.listenerId);
+	advance(90_001);
+	await manager.sweep();
+	expect(manager.get(playing.session.id)).toMatchObject({status: 'idle', rendering: false});
+	expect(manager.get(preparing.session.id).status).toBe('initializing');
+}, 3000);
 
 it('cleans crash leftovers only in owned UUID session folders and rebuilds missing playlists', async () => {
 	const {manager, config, factory, now} = await setup();

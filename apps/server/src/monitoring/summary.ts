@@ -55,6 +55,7 @@ export class RunSummary {
 		const events = this.observeRuntime(sample, warn);
 		this.observeProcesses(sample);
 		this.observeSession(sample, warn);
+		this.observePlanning(sample);
 		this.observeDisk(sample, warn);
 
 		this.previous = sample;
@@ -121,6 +122,21 @@ export class RunSummary {
 			this.metric('ffmpegProcessCount', ffmpeg.length);
 			this.metric('ffmpegRssBytes', ffmpeg.reduce((sum, row) => sum + row.rssBytes, 0));
 			this.metric('ffmpegPsCpuPercent', ffmpeg.reduce((sum, row) => sum + row.cpuPercent, 0));
+		}
+	}
+
+	private observePlanning({session}: Sample) {
+		if (session?.scheduledEvents) {
+			this.metric('scheduledEventCount', session.scheduledEvents.length);
+		}
+
+		if (session?.planning) {
+			this.metric('eventOpportunities', session.planning.opportunities);
+			this.metric('eventSkips', session.planning.skipped);
+		}
+
+		if (session?.modelState) {
+			this.metric('plannerRequestActive', Number(session.modelState.plannerRequestActive));
 		}
 	}
 

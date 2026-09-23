@@ -11,6 +11,7 @@ export type Renderer = {
 	readonly running: boolean;
 	ready: () => Promise<void>;
 	stop: () => Promise<void>;
+	eventStartMs?: () => number;
 	diagnostics?: () => {renderedUntilMs: number; committedUntilMs: number; queuedChunks: number; minimumBufferMs: number; targetBufferMs: number; maximumBufferMs: number};
 };
 

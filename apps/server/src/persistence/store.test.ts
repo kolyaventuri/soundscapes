@@ -22,9 +22,20 @@ it('migrates once, persists sessions and assets, and bounds event history with o
 			store.addEvent(randomUUID(), 'session', index * 120_000, {index});
 		}
 
-		expect(store.events('session').length).toBeLessThanOrEqual(31);
+		const expectedHistory = Array.from({length: 30}, (value, index) => ({index: 99 - index}));
+		expect(store.events('session')).toEqual(expectedHistory);
+		expect(store.events('another-session')).toEqual([]);
 		store.close();
 		store = new Store(file);
+		expect(store.events('session')).toEqual(expectedHistory);
+		expect(() => {
+			store.transaction(() => {
+				store.addEvent(randomUUID(), 'session', 12_000_000, {index: 100});
+				store.useAsset(id, 'rolled-back');
+				throw new Error('Abort scheduling transaction');
+			});
+		}).toThrow('Abort scheduling transaction');
+		expect(store.events('session')).toEqual(expectedHistory);
 		expect(store.loadSessions()).toEqual([{elapsedMs: 42}]);
 		expect(store.assets()[0]).toMatchObject({usageCount: 1, lastUsedAt: '2026-09-23T00:00:00Z'});
 		store.deleteSession('session');

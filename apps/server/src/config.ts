@@ -3,6 +3,7 @@ import path from 'node:path';
 import process from 'node:process';
 import {fileURLToPath} from 'node:url';
 import {z} from 'zod';
+import {defaultDelayBuckets, delayBucketsSchema} from './planning/contracts.js';
 
 const environmentSchema = z.object({
 	HOST: z.string().trim().min(1).default('0.0.0.0'),
@@ -12,6 +13,12 @@ const environmentSchema = z.object({
 	FFMPEG_PATH: z.string().min(1).default('ffmpeg'),
 	FFPROBE_PATH: z.string().min(1).default('ffprobe'),
 	IDLE_TIMEOUT_SECONDS: z.coerce.number().int().min(10).max(300).default(90),
+	OLLAMA_URL: z.url().default('http://127.0.0.1:11434'),
+	OLLAMA_MODEL: z.string().regex(/^[\w.:/-]+$/).max(120).default('qwen3:8b'),
+	PLANNER_TIMEOUT_SECONDS: z.coerce.number().int().min(1).max(120).default(45),
+	EVENT_SKIP_PROBABILITY: z.coerce.number().min(0).max(1).default(0.25),
+	EVENT_DELAY_SCALE: z.coerce.number().min(0.05).max(10).default(1),
+	EVENT_DELAY_BUCKETS: z.string().optional(),
 });
 
 export const repositoryRoot = fileURLToPath(new URL('../../../', import.meta.url));
@@ -25,6 +32,12 @@ export function loadEnvironment() {
 
 export function readConfig(environment: NodeJS.ProcessEnv = process.env) {
 	const parsed = environmentSchema.parse(environment);
+	const ollamaUrl = new URL(parsed.OLLAMA_URL);
+	const local = ollamaUrl.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(ollamaUrl.hostname);
+	if (!local || ollamaUrl.username || ollamaUrl.password || ollamaUrl.pathname !== '/' || ollamaUrl.search || ollamaUrl.hash) {
+		throw new Error('OLLAMA_URL must be a local loopback HTTP origin');
+	}
+
 	const dataDirectory = path.resolve(repositoryRoot, parsed.DATA_DIR);
 	return {
 		host: parsed.HOST, port: parsed.PORT, logLevel: parsed.LOG_LEVEL,
@@ -33,6 +46,10 @@ export function readConfig(environment: NodeJS.ProcessEnv = process.env) {
 		ffmpegPath: parsed.FFMPEG_PATH,
 		ffprobePath: parsed.FFPROBE_PATH,
 		idleTimeoutMs: parsed.IDLE_TIMEOUT_SECONDS * 1000,
+		planner: {
+			url: ollamaUrl.origin, model: parsed.OLLAMA_MODEL, timeoutMs: parsed.PLANNER_TIMEOUT_SECONDS * 1000, skipProbability: parsed.EVENT_SKIP_PROBABILITY, delayScale: parsed.EVENT_DELAY_SCALE,
+			delayBuckets: delayBucketsSchema.parse(parsed.EVENT_DELAY_BUCKETS ? JSON.parse(parsed.EVENT_DELAY_BUCKETS) : defaultDelayBuckets),
+		},
 	};
 }
 

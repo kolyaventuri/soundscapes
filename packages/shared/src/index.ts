@@ -1,9 +1,11 @@
 import {z} from 'zod';
 
+export {sceneSchema, eventCategorySchema, type Scene} from './scene.js';
+
 export const healthResponseSchema = z.object({
 	status: z.literal('ok'),
 	service: z.literal('soundscapes'),
-	stage: z.literal('procedural-ambience'),
+	stage: z.literal('local-event-planning'),
 });
 
 export type HealthResponse = z.infer<typeof healthResponseSchema>;
@@ -11,7 +13,7 @@ export type HealthResponse = z.infer<typeof healthResponseSchema>;
 export const healthResponseJsonSchema = z.toJSONSchema(healthResponseSchema, {target: 'draft-7'});
 
 export const sessionStatusSchema = z.enum(['initializing', 'active', 'idle', 'stopped', 'error']);
-export const createSessionSchema = z.strictObject({mode: z.enum(['fixture', 'ambience'])});
+export const createSessionSchema = z.strictObject({mode: z.enum(['fixture', 'ambience']), prompt: z.string().trim().min(1).max(4000).optional()});
 export const sessionIdSchema = z.uuid();
 export const listenerControlSchema = z.strictObject({listenerId: z.uuid()});
 export const sessionSchema = z.object({
