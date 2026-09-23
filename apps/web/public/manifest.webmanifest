@@ -1,0 +1,11 @@
+{
+  "id": "/",
+  "name": "Soundscapes",
+  "short_name": "Soundscapes",
+  "description": "Quiet, locally generated environments for sleep.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#132a2b",
+  "theme_color": "#132a2b",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

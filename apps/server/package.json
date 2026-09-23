@@ -1,0 +1,19 @@
+{
+  "name": "@soundscapes/server",
+  "version": "0.1.0-dev",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch --include '../../packages/shared/dist/**/*.js' src/index.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/index.js --serve-web",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@fastify/static": "^10.1.4",
+    "@soundscapes/shared": "workspace:*",
+    "fastify": "^5.12.5",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": { "tsx": "^4.23.15" }
+}

@@ -1,0 +1,25 @@
+{
+  "name": "soundscapes",
+  "version": "0.1.0-dev",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.29.3",
+  "engines": { "node": ">=24.12.0 <25", "pnpm": ">=10 <11" },
+  "scripts": {
+    "dev": "pnpm --filter @soundscapes/shared build && pnpm --parallel -r dev",
+    "build": "pnpm -r build",
+    "start": "pnpm --filter @soundscapes/server start",
+    "lint": "pnpm --filter @soundscapes/shared build && xo",
+    "lint:fix": "pnpm --filter @soundscapes/shared build && xo --fix",
+    "typecheck": "pnpm --filter @soundscapes/shared build && pnpm -r typecheck && tsc --noEmit",
+    "test": "pnpm --filter @soundscapes/shared build && vitest run",
+    "test:watch": "pnpm --filter @soundscapes/shared build && vitest",
+    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.6",
+    "typescript": "~5.9.3",
+    "vitest": "^5.0.1",
+    "xo": "~1.2.0"
+  }
+}
