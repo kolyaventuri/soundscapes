@@ -26,6 +26,9 @@ root = Path(os.environ["SOUNDSCAPES_SOUND_OUTPUT"]).resolve()
 root.mkdir(parents=True, exist_ok=True)
 manifest_path = Path(os.environ["SOUNDSCAPES_SOUND_MANIFEST"])
 model = None
+manifest = json.loads(manifest_path.read_text())
+if manifest["model"] != os.environ.get("SOUNDSCAPES_SOUND_MODEL", "stable-audio-3-small-sfx"):
+    raise ValueError("Configured model and manifest differ; check SOUND_MODEL_MANIFEST")
 
 
 def emit(message):
@@ -34,17 +37,21 @@ def emit(message):
 
 
 def load_model():
+    if manifest.get("backend") == "mlx":
+        if os.environ.get("SOUNDSCAPES_SOUND_DEVICE") != "mlx":
+            raise ValueError("MLX manifest requires SOUND_DEVICE=mlx")
+        from mlx_backend import MlxSoundModel
+        return MlxSoundModel(manifest), manifest
     import torch
     from stable_audio_3 import StableAudioModel
     from stable_audio_3.loading_utils import load_diffusion_cond
 
-    manifest = json.loads(manifest_path.read_text())
     directory = Path(manifest["directory"]).resolve()
     config = json.loads((directory / "model_config.json").read_text())
 
     def localize(value):
         if isinstance(value, dict):
-            if value.get("repo_id") == "stabilityai/stable-audio-3-small-sfx":
+            if value.get("repo_id") == f"stabilityai/{manifest["model"]}":
                 value["repo_id"] = str(directory)
             for child in value.values():
                 localize(child)
@@ -97,21 +104,24 @@ for line in sys.stdin:
         if model is None:
             model, manifest = load_model()
             load_ms = (time.monotonic() - started) * 1000
-        import torch
+        import numpy as np
         import soundfile as sf
 
-        with torch.inference_mode():
-            audio = model.generate(prompt=request["prompt"], duration=duration, steps=8, seed=request["seed"], batch_size=1)
-        audio = audio[0].to("cpu", dtype=torch.float32)
-        if audio.shape[0] != 2 or not torch.isfinite(audio).all():
-            raise ValueError("Generated audio is not finite stereo PCM")
-        audio = audio[:, : duration * 44100]
-        if audio.shape[1] != duration * 44100:
-            raise ValueError("Generated audio is shorter than requested")
-        sf.write(str(target), audio.numpy().T, 44100, subtype="FLOAT")
+        print(f"Generating {manifest['model']}: {duration}s seed={request['seed']} id={identifier}", flush=True)
+        if manifest.get("backend") == "mlx":
+            audio, stage_load_ms = model.generate(request["prompt"], duration, request["seed"])
+            load_ms += stage_load_ms
+        else:
+            import torch
+            with torch.inference_mode():
+                audio = model.generate(prompt=request["prompt"], duration=duration, steps=8, seed=request["seed"], batch_size=1)
+            audio = audio[0].to("cpu", dtype=torch.float32).numpy()[:, :duration * 44100]
+        if audio.shape != (2, duration * 44100) or not np.isfinite(audio).all():
+            raise ValueError("Generated audio is not finite stereo PCM of the requested duration")
+        sf.write(str(target), audio.T, 44100, subtype="FLOAT")
         rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
         emit({"type": "result", "audio": {
-            "id": identifier, "path": str(target), "model": "stable-audio-3-small-sfx", "revision": manifest["revision"],
+            "id": identifier, "path": str(target), "model": manifest["model"], "resident": manifest.get("backend") != "mlx", "revision": manifest["revision"],
             "durationSeconds": duration, "sampleRate": 44100, "channels": 2,
             "elapsedMs": (time.monotonic() - started) * 1000, "loadMs": load_ms,
             "peakRssBytes": rss if sys.platform == "darwin" else rss * 1024,

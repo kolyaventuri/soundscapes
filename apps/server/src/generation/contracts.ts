@@ -7,9 +7,9 @@ export const soundRequestSchema = z.strictObject({
 });
 export type SoundRequest = z.infer<typeof soundRequestSchema>;
 export const generatedAudioSchema = z.strictObject({
-	id: z.uuid(), path: z.string(), model: z.literal('stable-audio-3-small-sfx'), revision: z.string().regex(/^[a-f\d]{40}$/),
+	id: z.uuid(), path: z.string(), model: z.enum(['stable-audio-3-small-sfx', 'stable-audio-3-small-music', 'stable-audio-3-medium']), revision: z.string().regex(/^[a-f\d]{40}$/),
 	durationSeconds: z.number().positive().max(120), sampleRate: z.literal(44_100), channels: z.literal(2),
-	elapsedMs: z.number().nonnegative(), loadMs: z.number().nonnegative(), peakRssBytes: z.number().nonnegative(),
+	elapsedMs: z.number().nonnegative(), loadMs: z.number().nonnegative(), resident: z.boolean().optional(), peakRssBytes: z.number().nonnegative(),
 });
 export type GeneratedAudio = z.infer<typeof generatedAudioSchema>;
 export const workerStateSchema = z.object({pid: z.number().nullable(), loaded: z.boolean(), busy: z.boolean()});

@@ -1,2 +1,6 @@
 # Official runtime, pinned to the source inspected for Phase 4.
 stable-audio-3 @ git+https://github.com/Stability-AI/stable-audio-3.git@779434a908193105335fd8d833418603625b2859
+
+# Official Apple Silicon runtime (Medium and the small models).
+mlx>=0.30; sys_platform == 'darwin' and platform_machine == 'arm64'
+sentencepiece>=0.2

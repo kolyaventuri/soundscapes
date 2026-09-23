@@ -73,3 +73,20 @@ it('rejects remote planner origins and invalid opportunity distributions', () =>
 		expect(() => readConfig({EVENT_DELAY_BUCKETS: JSON.stringify(buckets)})).toThrow();
 	}
 });
+
+it('keeps requested music and crowds with sleep mode optional', async () => {
+	const parsed = {
+		...scene, sleepMode: false, audioPrompt: 'A cafe with jazz piano and indistinct crowd chatter.', constraints: ['no jazz piano', 'no crowd conversation'],
+		calendar: {
+			month: null, day: null, hour: null, minute: null,
+		},
+	};
+	vi.stubGlobal('fetch', vi.fn(async () => response(parsed)));
+	const planner = new OllamaPlanner(readConfig({}).planner);
+	const result = await planner.parseScene('Cafe with jazz piano and crowd chatter', new AbortController().signal);
+	expect(result.sleepMode).toBe(false);
+	expect(result.constraints).toEqual([]);
+	expect(result.audioPrompt).toContain('jazz piano');
+	const excluded = await planner.parseScene('A cafe with jazz piano. No footsteps or wind.', new AbortController().signal);
+	expect(excluded.constraints).toEqual(['No footsteps or wind']);
+});

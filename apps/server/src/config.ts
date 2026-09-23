@@ -21,8 +21,9 @@ const environmentSchema = z.object({
 	EVENT_DELAY_BUCKETS: z.string().optional(),
 	SOUND_ENABLED: z.enum(['true', 'false']).default('true'),
 	SOUND_PYTHON: z.string().min(1).default('models/sound-runtime/bin/python'),
-	SOUND_MODEL_MANIFEST: z.string().min(1).default('models/stable-audio-3-small-sfx/manifest.json'),
-	SOUND_DEVICE: z.enum(['cpu', 'mps']).default('cpu'),
+	SOUND_MODEL: z.enum(['small-sfx', 'small-music', 'medium']).default('small-sfx'),
+	SOUND_MODEL_MANIFEST: z.string().min(1).optional(),
+	SOUND_DEVICE: z.enum(['cpu', 'mps', 'mlx']).default('cpu'),
 	SOUND_TIMEOUT_SECONDS: z.coerce.number().int().min(5).max(1800).default(300),
 	SOUND_IDLE_UNLOAD_SECONDS: z.coerce.number().int().min(0).max(1800).default(1800),
 });
@@ -54,7 +55,9 @@ export function readConfig(environment: NodeJS.ProcessEnv = process.env) {
 		idleTimeoutMs: parsed.IDLE_TIMEOUT_SECONDS * 1000,
 		sound: {
 			enabled: parsed.SOUND_ENABLED === 'true', python: path.resolve(repositoryRoot, parsed.SOUND_PYTHON),
-			manifest: path.resolve(repositoryRoot, parsed.SOUND_MODEL_MANIFEST), device: parsed.SOUND_DEVICE,
+			model: `stable-audio-3-${parsed.SOUND_MODEL}`,
+			manifest: path.resolve(repositoryRoot, parsed.SOUND_MODEL_MANIFEST ?? `models/stable-audio-3-${parsed.SOUND_MODEL}${parsed.SOUND_DEVICE === 'mlx' ? '-mlx' : ''}/manifest.json`),
+			device: parsed.SOUND_DEVICE,
 			worker: path.join(repositoryRoot, 'workers/sound/worker.py'), output: path.join(dataDirectory, 'quarantine/sound'),
 			timeoutMs: parsed.SOUND_TIMEOUT_SECONDS * 1000, idleUnloadMs: parsed.SOUND_IDLE_UNLOAD_SECONDS * 1000,
 		},

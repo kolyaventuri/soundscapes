@@ -53,11 +53,12 @@ export class PythonSoundGenerator implements SoundGenerator {
 				});
 			});
 			const audio = await abortable(result, signal);
-			if (audio.path !== path.join(this.config.output, `${request.id}.wav`) || audio.durationSeconds !== request.durationSeconds) {
-				throw new Error('Sound worker returned an unexpected file or duration');
+			if (audio.path !== path.join(this.config.output, `${request.id}.wav`) || audio.durationSeconds !== request.durationSeconds
+				|| audio.model !== this.config.model) {
+				throw new Error('Sound worker returned an unexpected model, file or duration');
 			}
 
-			this.loaded = true;
+			this.loaded = audio.resident ?? true;
 			return audio;
 		} catch (error) {
 			await this.close(); // Reap inference before allowing the next queue item or file cleanup.
@@ -104,7 +105,8 @@ export class PythonSoundGenerator implements SoundGenerator {
 			env: {
 				PATH: process.env.PATH, HOME: process.env.HOME, PYTHONUNBUFFERED: '1',
 				HF_HUB_OFFLINE: '1', TRANSFORMERS_OFFLINE: '1', HF_HUB_DISABLE_TELEMETRY: '1', DO_NOT_TRACK: '1',
-				SOUNDSCAPES_SOUND_MANIFEST: this.config.manifest, SOUNDSCAPES_SOUND_OUTPUT: this.config.output, SOUNDSCAPES_SOUND_DEVICE: this.config.device,
+				SOUNDSCAPES_SOUND_MODEL: this.config.model, SOUNDSCAPES_SOUND_MANIFEST: this.config.manifest,
+				SOUNDSCAPES_SOUND_OUTPUT: this.config.output, SOUNDSCAPES_SOUND_DEVICE: this.config.device,
 			},
 		});
 		this.child = child;
@@ -124,6 +126,7 @@ export class PythonSoundGenerator implements SoundGenerator {
 		});
 		child.stderr.on('data', (chunk: Uint8Array) => {
 			this.stderr = (this.stderr + chunk.toString()).slice(-4000);
+			process.stderr.write(`[sound-worker] ${chunk.toString()}`);
 		});
 		let buffer = '';
 		child.stdout.setEncoding('utf8');

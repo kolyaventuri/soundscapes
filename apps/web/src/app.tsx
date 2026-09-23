@@ -237,7 +237,7 @@ export function App() {
 				<span className="phase-label">Local scene prototype</span>
 			</header>
 			<section aria-labelledby="welcome-title">
-				<p className="eyebrow">A quieter kind of night</p>
+				<p className="eyebrow">Step into a scene</p>
 				<h1 id="welcome-title">
 					{session ? (
 						session.title
@@ -245,18 +245,19 @@ export function App() {
 						<>
 							A place to
 							<br />
-							drift off.
+							spend time.
 						</>
 					)}
 				</h1>
 				<p className="introduction">
-					Your setting, quietly brought to life on your local server.
+					Your setting, brought to life on your local server.
 				</p>
 				<div className="notice">
-					<p className="notice-title">A setting for the quiet.</p>
+					<p className="notice-title">An environment of your own.</p>
 					<p>
-						Describe a place to create its ambience and occasional distant
-						sounds. Preparing a new scene can take a few minutes. Leave the
+						Describe what you want to hear: a place, its activity, crowd murmur
+						or background music. Ask for sleep mode if you want gentler
+						dynamics. Preparing a new scene can take a few minutes. Leave the
 						description blank for a soft-air playback test.
 					</p>
 				</div>
@@ -303,7 +304,7 @@ export function App() {
 				) : null}
 				{error ? <a href="/">Start a new test stream</a> : null}
 			</section>
-			<footer>Local by nature. Quiet by design.</footer>
+			<footer>Generated locally. Shaped by your scene.</footer>
 		</main>
 	);
 }

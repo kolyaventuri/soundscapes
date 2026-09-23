@@ -45,13 +45,13 @@ export function nextOpportunityDelay(random = Math.random, scale = 1, buckets = 
 }
 
 export const hardConstraints = [
-	'No intelligible speech or music',
+	'No intelligible foreground speech; requested indistinct crowds and background music are permitted',
 	'No explosions, screaming, gunfire, crashes, alarms, sirens, horns or sharp impacts',
 	'No sudden nearby animals or dramatic weather changes',
 	'Only subtle, distant environmental sounds; no change to the weather',
 ];
-// eslint-disable-next-line @stylistic/max-len -- Keep the auditable exclusion expression intact.
-const unsafe = /\b(explos\w*|scream\w*|gun\w*|crash\w*|alarm\w*|siren\w*|horn\w*|bang\w*|slam\w*|thunder\w*|storm\w*|shout\w*|speech|conversation\w*|voice\w*|speak\w*|music|bark\w*|roar\w*|sudden|sharp|loud|nearby)\b/i;
-export function unsafeDescription(text: string) {
-	return unsafe.test(text);
+
+const unsafe = /\b(explos\w*|scream\w*|gun\w*|crash\w*|alarm\w*|siren\w*|horn\w*|bang\w*|slam\w*|thunder\w*|storm\w*|shout\w*|speech|speak\w*|bark\w*|roar\w*|sudden|sharp|loud|nearby)\b/i;
+export function unsafeDescription(text: string, sleepMode = true) {
+	return sleepMode && unsafe.test(text);
 }

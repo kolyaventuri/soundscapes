@@ -78,9 +78,14 @@ try {
 	assert.ok(!defaulted.allowedEventCategories.includes('distant-footsteps'));
 	assert.ok(!defaulted.allowedEventCategories.includes('insects'));
 	assert.ok(!defaulted.allowedEventCategories.includes('wind'));
+	const cafe = await planner.parseScene('Inside a busy cafe: espresso machine, clinking cups, indistinct crowd conversation and soft jazz piano played in the room.', signal);
+	assert.equal(cafe.sleepMode, false);
+	assert.match(cafe.audioPrompt, /piano|jazz/i);
+	assert.match(cafe.audioPrompt, /crowd|conversation|chatter|murmur/i);
+	assert.deepEqual(cafe.constraints, [], 'Do not invent exclusions for requested sources');
 	const result = {
 		at: new Date().toISOString(), model: config.planner.model, sceneMs, nullMs, eventMs,
-		maximumModelBytes, maximumGpuBytes, scene, empty, proposal, generatedProposal, generationProposalMs, defaulted,
+		maximumModelBytes, maximumGpuBytes, scene, empty, proposal, generatedProposal, generationProposalMs, defaulted, cafe,
 		note: 'Real local model calls. Memory is sampled Ollama-reported model/VRAM allocation, not total host usage or an overnight result.',
 	};
 	const directory = path.join(config.dataDirectory, 'planner-checks');

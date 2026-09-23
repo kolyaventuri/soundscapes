@@ -47,8 +47,14 @@ function explicitClock(prompt: string) {
 	return {hour, minute};
 }
 
+// Exclusions are user-authored. Models can otherwise turn requested sources into bans.
+export function explicitSoundConstraints(prompt: string) {
+	return [...new Set([...prompt.matchAll(/\b(?:no|without|avoid|exclude|do not include|don't include)\s+[^.;!?\n]+/gi)]
+		.map(match => match[0].trim().slice(0, 200)))].slice(0, 12);
+}
+
 export function explicitlyExcluded(prompt: string, category: Scene['allowedEventCategories'][number]) {
-	const exclusions = [...prompt.matchAll(/\b(?:no|without|avoid|exclude)\s+([^.;!?]+)/gi)].map(match => match[1]).join(' ');
+	const exclusions = explicitSoundConstraints(prompt).join(' ');
 	const patterns = {
 		wind: /\bwind\b/i,
 		leaves: /\b(rustl\w*|leaves)\b/i,

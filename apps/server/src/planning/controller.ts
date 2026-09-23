@@ -22,7 +22,7 @@ export function eligibleAssets(assets: Asset[], scene: Scene, history: Scheduled
 	return assets.filter(asset => asset.kind === 'event' && asset.event && (asset.event.reviewedSleepSafe || asset.generation?.validation === 'levels-v1')
 		&& scene.allowedEventCategories.includes(asset.event.category)
 		&& !explicitlyExcluded(scene.originalPrompt, asset.event.category)
-		&& !unsafeDescription(`${asset.title} ${asset.event.tags.join(' ')}`)
+		&& !unsafeDescription(`${asset.title} ${asset.event.tags.join(' ')}`, scene.sleepMode)
 		&& !recent.some(event => event.assetId === asset.id || (event.category === asset.event!.category && event.startMs >= elapsedMs - (10 * 60_000))));
 }
 
@@ -172,6 +172,6 @@ export async function abortable<T>(promise: Promise<T>, signal: AbortSignal): Pr
 function invalidProposal(proposal: EventProposal, context: PlannerContext) {
 	return !proposal.category || !context.scene.allowedEventCategories.includes(proposal.category) || proposal.durationSeconds === null
 		|| explicitlyExcluded(context.scene.originalPrompt, proposal.category)
-		|| proposal.durationSeconds < 2 || proposal.prominence === null || !proposal.event || unsafeDescription(proposal.event)
+		|| proposal.durationSeconds < 2 || proposal.prominence === null || !proposal.event || unsafeDescription(proposal.event, context.scene.sleepMode)
 		|| context.recentEvents.some(event => event.category === proposal.category && event.startMs >= context.elapsedMs - 600_000);
 }

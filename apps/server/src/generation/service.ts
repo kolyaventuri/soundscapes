@@ -1,6 +1,6 @@
 import {createHash, randomInt, randomUUID} from 'node:crypto';
 import {
-	lstat, mkdir, readdir, realpath, rename, rm,
+	lstat, mkdir, readFile, readdir, realpath, rename, rm,
 } from 'node:fs/promises';
 import path from 'node:path';
 import {z} from 'zod';
@@ -22,14 +22,21 @@ function hash(text: string) {
 	return createHash('sha256').update(text).digest('hex');
 }
 
-export function soundPrompt(scene: Scene, detail: string) {
-	// The encoder has a short context window: lead with acoustics, keep the setting concise.
-	return [detail,
-		`${scene.location}; ${scene.year ?? ''} ${scene.season} ${scene.timeOfDay}.`,
-		`Weather: ${Object.values(scene.weather).filter(Boolean).join(', ')}.`,
-		scene.description.slice(0, 350),
-		'Quiet, distant, gentle sleep ambience. No voices, speech, music, abrupt changes or impacts.',
+export function soundPrompt(scene: Scene, detail: string, kind: SoundRequest['kind'] = 'ambience') {
+	// Lead with identifiable sources inside the encoder's short context window.
+	const caption = scene.audioPrompt || scene.originalPrompt || scene.description || scene.title;
+	return [...(kind === 'event' ? [detail, caption.slice(0, 650)] : [caption.slice(0, 650), detail]),
+		'Natural stereo perspective, distinct sound sources and realistic acoustic depth.',
+		...(scene.sleepMode ? ['Relaxed dynamics, gentle transitions, suitable for sleep.'] : []),
 		...scene.constraints].join(' ').slice(0, 6000);
+}
+
+export function generationAssetKey(scene: Scene, profile: string, description: {
+	kind: SoundRequest['kind']; durationSeconds: number; prompt: string; variant?: number | undefined;
+}) {
+	return hash(JSON.stringify({
+		profile, sceneKey: sceneKey(scene), sleepMode: scene.sleepMode, ...description,
+	}));
 }
 
 type Owner = {sessionId: string; signal: AbortSignal; valid: () => boolean; deadlineAt?: number};
@@ -37,6 +44,7 @@ export class GenerationService {
 	readonly queue: GenerationQueue;
 	readonly generator: SoundGenerator;
 	private readonly config: AppConfig;
+	private profile: Promise<string> | undefined;
 	constructor(config: AppConfig, private readonly store: Store, generator?: SoundGenerator) {
 		this.config = {...config, sound: {...config.sound, output: path.join(config.dataDirectory, 'quarantine/sound')}};
 		this.generator = generator ?? new PythonSoundGenerator(this.config.sound);
@@ -57,7 +65,7 @@ export class GenerationService {
 			// eslint-disable-next-line no-await-in-loop
 			assets.push(await this.obtain(scene, {
 				kind: 'ambience', durationSeconds: 90, variant, title: `${scene.title} · bed ${variant + 1}`,
-				prompt: soundPrompt(scene, 'Continuous, stable environmental background texture. No isolated foreground events. Subtle natural variation throughout.'),
+				prompt: soundPrompt(scene, 'A continuous recording of this environment, with its characteristic ongoing activity and natural variation.'),
 			}, owner));
 			progress([...assets]);
 		}
@@ -72,7 +80,7 @@ export class GenerationService {
 
 		return this.obtain(scene, {
 			kind: 'event', durationSeconds: Math.ceil(proposal.durationSeconds), title: proposal.event.slice(0, 120), category: proposal.category,
-			prompt: soundPrompt(scene, `One subtle event: ${proposal.event}. Distant and understated, with a soft beginning and ending.`),
+			prompt: soundPrompt(scene, `One subtle event: ${proposal.event}. Distant and understated, with a soft beginning and ending.`, 'event'),
 		}, owner);
 	}
 
@@ -84,10 +92,15 @@ export class GenerationService {
 		kind: SoundRequest['kind']; durationSeconds: number; title: string; prompt: string; variant?: number | undefined; category?: NonNullable<EventProposal['category']> | undefined;
 	}, owner: Owner) {
 		const key = sceneKey(scene);
-		const assetKey = hash(JSON.stringify({
-			profile: 'stable-audio-3-small-sfx/levels-v1', sceneKey: key, kind: description.kind, duration: description.durationSeconds, variant: description.variant,
-			event: description.kind === 'event' ? description.title.toLowerCase() : undefined, category: description.category,
-		}));
+		this.profile ??= (async () => {
+			const manifest = this.generator instanceof PythonSoundGenerator
+				? z.object({revision: z.string(), runtimeRevision: z.string().optional()}).parse(JSON.parse(await readFile(this.config.sound.manifest, 'utf8')))
+				: {revision: 'injected-adapter'};
+			return JSON.stringify({
+				model: this.config.sound.model, device: this.config.sound.device, ...manifest, prompt: 'scene-v2', levels: 'levels-v1',
+			});
+		})();
+		const assetKey = generationAssetKey(scene, await this.profile, description);
 		owner.signal.throwIfAborted();
 		if (!owner.valid()) {
 			throw new Error('Sound request owner is idle');
@@ -199,7 +212,7 @@ export class GenerationService {
 
 			const asset = assetSchema.parse({
 				id: request.id, kind: request.kind, title: metadata.title, file, ...levels,
-				source: `Stable Audio 3 Small-SFX ${audio.revision}; automated level checks; listening acceptance pending`,
+				source: `${audio.model} ${audio.revision}; automated level checks; listening acceptance pending`,
 				generation: {
 					...metadata, model: audio.model, revision: audio.revision, seed: request.seed, prompt: request.prompt,
 					createdAt: new Date().toISOString(), validation: 'levels-v1', elapsedMs: audio.elapsedMs,
