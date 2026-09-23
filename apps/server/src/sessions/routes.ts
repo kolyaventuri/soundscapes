@@ -20,9 +20,9 @@ export function registerSessionRoutes(app: FastifyInstance, manager: SessionMana
 		schema: {querystring: jsonSchema(z.strictObject({offset: z.string().regex(/^\d{1,8}$/).optional(), limit: z.enum(['10', '25', '50', '100']).optional()}))},
 	}, async request => manager.assetsDebug(Number(request.query.offset ?? 0), Number(request.query.limit ?? 25)));
 
-	app.post<{Body: {mode: 'fixture' | 'ambience'; prompt?: string; sleepMode?: boolean}}>('/api/sessions', {
+	app.post<{Body: {mode: 'fixture' | 'ambience'; prompt?: string; sleepMode?: boolean; generationMode?: 'simple' | 'layered'}}>('/api/sessions', {
 		schema: {body: jsonSchema(createSessionSchema), response: {202: listenerResponse}},
-	}, async (request, reply) => reply.code(202).send(manager.create(request.body.mode, request.body.prompt, request.body.sleepMode)));
+	}, async (request, reply) => reply.code(202).send(manager.create(request.body.mode, request.body.prompt, request.body.sleepMode, request.body.generationMode)));
 
 	app.get<{Params: SessionParameters}>('/api/sessions/:id', {
 		schema: {params: parametersSchema, response: {200: sessionResponse}},

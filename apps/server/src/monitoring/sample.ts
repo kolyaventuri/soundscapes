@@ -5,6 +5,7 @@ import path from 'node:path';
 import {promisify} from 'node:util';
 import {z} from 'zod';
 import {delayBucketsSchema} from '../planning/contracts.js';
+import {layeredStateSchema} from '../layers/timeline.js';
 import {sessionDiskUsage, type DiskUsage} from './storage.js';
 
 const execute = promisify(execFile);
@@ -30,6 +31,7 @@ const sessionDebugSchema = z.object({
 	bufferLimitsSeconds: z.object({minimum: nonnegative, target: nonnegative, maximum: nonnegative}),
 	scheduledBeds: z.array(z.object({assetId: z.uuid(), startMs: nonnegative, durationMs: nonnegative})).max(256),
 	scheduledEvents: z.array(z.object({assetId: z.uuid(), startMs: nonnegative, durationMs: nonnegative})).max(32).optional(),
+	layeredTimeline: layeredStateSchema.nullable().optional(),
 	planning: z.object({
 		enabled: z.boolean(), busy: z.boolean(), model: z.string().max(120), opportunities: nonnegative, skipped: nonnegative, nextOpportunityMs: nonnegative.nullable(),
 	}).optional(),

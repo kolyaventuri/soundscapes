@@ -1,5 +1,5 @@
 import {z} from 'zod';
-import {eventCategorySchema} from '@soundscapes/shared';
+import {eventCategorySchema, layerIdSchema} from '@soundscapes/shared';
 
 export const soundRequestSchema = z.strictObject({
 	id: z.uuid(), sessionId: z.uuid(), kind: z.enum(['ambience', 'event']), prompt: z.string().trim().min(1).max(6000),
@@ -26,5 +26,5 @@ export type SoundGenerator = {
 export const generationMetadataSchema = z.object({
 	model: z.string().max(120), revision: z.string().max(64), seed: z.number().int(), prompt: z.string().max(6000),
 	sceneKey: z.string().length(64), assetKey: z.string().length(64), createdAt: z.iso.datetime(), validation: z.literal('levels-v1'),
-	variant: z.number().int().min(0).max(3).optional(), category: eventCategorySchema.optional(), elapsedMs: z.number().nonnegative(),
+	variant: z.number().int().min(0).max(5).optional(), layerId: layerIdSchema.optional(), category: eventCategorySchema.optional(), elapsedMs: z.number().nonnegative(),
 });

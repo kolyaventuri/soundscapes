@@ -7,6 +7,7 @@ import {setTimeout as delay} from 'node:timers/promises';
 import {startRenderer, type Renderer, type RendererOptions} from '../audio/hls.js';
 import {type Asset} from '../persistence/store.js';
 import {type ScheduledEvent} from '../planning/contracts.js';
+import {extendLayers, layerClips, type LayeredState} from '../layers/timeline.js';
 import {
 	bytesPerSecond, chunkMs, mixArguments, renderChunk,
 } from './mix.js';
@@ -18,6 +19,7 @@ type Options = RendererOptions & {
 	temporary: string;
 	assets: Asset[];
 	timeline: TimelineState;
+	layered?: LayeredState;
 	events?: ScheduledEvent[];
 	eventAssets?: Asset[];
 	playbackMs: () => number;
@@ -42,26 +44,39 @@ export async function startAmbienceRenderer(options: Options): Promise<Renderer>
 		// Reserve this chunk before yielding: new overlays can only enter later chunks.
 		mixingUntilMs = renderedUntilMs + chunkMs;
 		const selected: Asset[] = [];
-		extendTimeline(options.timeline, options.assets, {untilMs: renderedUntilMs + chunkMs, playbackMs: options.playbackMs(), selected: asset => selected.push(asset)});
+		const schedule = {untilMs: renderedUntilMs + chunkMs, playbackMs: options.playbackMs(), selected: (asset: Asset) => selected.push(asset)};
+		if (options.layered) {
+			extendLayers(options.layered, options.assets, schedule);
+		} else {
+			extendTimeline(options.timeline, options.assets, schedule);
+		}
+
 		options.onPlan(selected);
 		const file = path.join(options.temporary, `chunk-${nextChunk}.pcm`);
 		const events = (options.events ?? []).filter(event => event.startMs < mixingUntilMs && event.startMs + event.durationMs > renderedUntilMs);
 		const mix = {
-			beds: options.timeline.beds, assets: [...options.assets, ...options.eventAssets ?? []], root: options.root, startMs: renderedUntilMs, durationMs: chunkMs, output: file,
+			beds: options.layered ? layerClips(options.layered) : options.timeline.beds,
+			assets: [...options.assets, ...options.eventAssets ?? []], root: options.root, startMs: renderedUntilMs, durationMs: chunkMs, output: file,
 		};
 		try {
 			await renderChunk(options.ffmpegPath, mixArguments({...mix, events}), abort.signal);
 		} catch (error) {
-			if (abort.signal.aborted || events.length === 0) {
+			const optionalLayers = options.layered?.layers.filter(layer => !layer.policy.required && layer.state !== 'unavailable') ?? [];
+			if (abort.signal.aborted || (events.length === 0 && optionalLayers.length === 0)) {
 				throw error;
 			}
 
 			// A missing/broken optional WAV must not take the bed down with it.
 			const ids = new Set(events.map(event => event.id));
-			const retained = options.events!.filter(event => !ids.has(event.id));
-			options.events!.splice(0, options.events!.length, ...retained);
+			const retained = (options.events ?? []).filter(event => !ids.has(event.id));
+			options.events?.splice(0, options.events.length, ...retained);
+			for (const layer of optionalLayers) {
+				layer.state = 'unavailable';
+				layer.warning = 'This optional layer could not be mixed. The remaining scene is continuing.';
+			}
+
 			options.onOptionalFailure?.(error);
-			await renderChunk(options.ffmpegPath, mixArguments(mix), abort.signal);
+			await renderChunk(options.ffmpegPath, mixArguments({...mix, beds: options.layered ? layerClips(options.layered) : mix.beds}), abort.signal);
 		}
 
 		const metadata = await stat(file);

@@ -16,7 +16,7 @@ export class Preparation {
 	private active: Task | undefined;
 	private planned = false;
 	private finishedAt: number | undefined;
-	constructor(private readonly store: Store, private readonly now: () => number, readonly totalBeds: number) {
+	constructor(private readonly store: Store, private readonly now: () => number, public totalBeds: number) {
 		this.startedAt = now();
 		this.stageStartedAt = now();
 	}

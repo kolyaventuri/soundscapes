@@ -4,7 +4,8 @@ import {
 } from 'node:fs/promises';
 import path from 'node:path';
 import {z} from 'zod';
-import {type Scene} from '@soundscapes/shared';
+import {type Scene, type LayerPlan, type LayerPolicy} from '@soundscapes/shared';
+import {clipSeconds, poolSize, type LayeredState} from '../layers/timeline.js';
 import {type AppConfig} from '../config.js';
 import {measure, playableAssets} from '../assets/fixtures.js';
 import {audioTags, sceneKey} from '../assets/reuse.js';
@@ -38,6 +39,10 @@ export function generationAssetKey(scene: Scene, profile: string, description: {
 		profile, sceneKey: sceneKey(scene), sleepMode: scene.sleepMode, ...description,
 	}));
 }
+
+const layerSources = {
+	ambience: 'environmental bed noise', music: 'music', activity: 'voices and crowd conversation', effects: 'discrete foreground effects',
+};
 
 type Owner = {sessionId: string; signal: AbortSignal; valid: () => boolean; deadlineAt?: number};
 export class GenerationService {
@@ -110,12 +115,43 @@ export class GenerationService {
 		}, owner);
 	}
 
+	async prepareLayerTasks(state: LayeredState, preparation: Preparation) {
+		preparation.totalBeds = state.layers.reduce((sum, layer) => sum + poolSize(layer.policy.id).initial, 0);
+		const profile = await this.getProfile();
+		preparation.plan(state.layers.flatMap((layer, index) => Array.from({length: poolSize(layer.policy.id).initial}, (value, variant) => {
+			const id = (index * 10) + variant;
+			const timing = `layer:${hash(profile)}:${clipSeconds(layer.policy.id)}`;
+			return [{id: `generate-${id}`, profile: `${timing}:${index === 0 && variant === 0 ? this.workerTemperature() : 'warm'}`},
+				{id: `validate-${id}`, profile: `${timing}:validate`}];
+		})).flat());
+	}
+
+	async layerAsset(scene: Scene, {plan, policy, variant}: {plan: LayerPlan; policy: LayerPolicy; variant: number}, owner: Owner, preparation?: Preparation) {
+		const profile = await this.getProfile();
+		return this.obtain(scene, {
+			kind: policy.id === 'effects' ? 'event' : 'ambience', durationSeconds: clipSeconds(policy.id), variant, layerId: policy.id,
+			title: `${scene.title} · ${policy.title} ${variant + 1}`,
+			prompt: [policy.prompt,
+				plan.acoustics,
+				'Record only this isolated source, natural stereo depth, no additional sources or intelligible speech.',
+				...plan.layers.filter(layer => layer.id !== policy.id).map(layer => `Exclude ${layerSources[layer.id]}.`),
+				...(scene.sleepMode ? ['Gentle dynamics, smooth beginning and ending.'] : []),
+				...scene.constraints].join(' ').slice(0, 6000),
+		}, owner, preparation
+			? {
+				preparation, timingProfile: `layer:${hash(profile)}:${clipSeconds(policy.id)}`,
+				variant: (plan.layers.findIndex(layer => layer.id === policy.id) * 10) + variant,
+			}
+			: undefined);
+	}
+
 	async close() {
 		await this.queue.close();
 	}
 
 	private async obtain(scene: Scene, description: {
-		kind: SoundRequest['kind']; durationSeconds: number; title: string; prompt: string; variant?: number | undefined; category?: NonNullable<EventProposal['category']> | undefined;
+		kind: SoundRequest['kind']; durationSeconds: number; title: string; prompt: string; variant?: number | undefined; layerId?: LayerPolicy['id'];
+		category?: NonNullable<EventProposal['category']> | undefined;
 	}, owner: Owner, tracking?: {preparation: Preparation; timingProfile: string; variant: number}) {
 		const key = sceneKey(scene);
 		const assetKey = generationAssetKey(scene, await this.getProfile(), description);
@@ -154,7 +190,7 @@ export class GenerationService {
 			}
 
 			const asset = await this.validate(audio, request, owner.signal, {
-				title: description.title, sceneKey: key, assetKey, variant: description.variant, category: description.category, affinity: scene,
+				title: description.title, sceneKey: key, assetKey, variant: description.variant, layerId: description.layerId, category: description.category, affinity: scene,
 			});
 			owner.signal.throwIfAborted();
 			if (!owner.valid() || (owner.deadlineAt !== undefined && Date.now() >= owner.deadlineAt)) {
@@ -186,7 +222,8 @@ export class GenerationService {
 	}
 
 	private async validate(audio: GeneratedAudio, request: SoundRequest, signal: AbortSignal, metadata: {
-		title: string; sceneKey: string; assetKey: string; variant?: number | undefined; category?: NonNullable<EventProposal['category']> | undefined; affinity: Scene;
+		title: string; sceneKey: string; assetKey: string; variant?: number | undefined; layerId?: LayerPolicy['id'] | undefined;
+		category?: NonNullable<EventProposal['category']> | undefined; affinity: Scene;
 	}) {
 		const expected = await checkOutputPath(this.config.sound.output, request.id, audio.path);
 

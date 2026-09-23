@@ -64,11 +64,34 @@ Then open `https://192.168.4.64:3443`. The same CA must be installed and trusted
 
 ## Preparation feedback
 
-Scene preparation now reports live stages, actual generation steps where supported, completed/reused recordings, and elapsed time. All four recordings must pass validation and HLS must be buffered before **Ready to play** appears. Playback still needs an explicit tap. Scene, weather and the simulation clock appear alongside the player.
+Scene preparation now reports live stages, actual generation steps where supported, completed/reused recordings, and elapsed time. The initial required recordings must pass validation and HLS must be buffered before **Ready to play** appears. Playback still needs an explicit tap. Scene, weather and the simulation clock appear alongside the player.
 
 Approximate time-to-play ranges use successful measurements from this server, separated by model revision, backend, duration, cold/warm worker state, validation and playback buffering. A first run, unknown remaining work, a competing queue, or a timing overrun uses an indeterminate state. Sampling steps are progress within one recording, not an overall completion percentage. SQLite schema v2 retains at most 20 measurements per profile and 512 in total. No historical timings are invented or imported from development benchmarks.
 
 Reloading reads current server state. Connection failures hide stale estimates; successful polling clears the connection error. **Cancel preparation** stops the session. If preparation was paused or interrupted by a server shutdown, **Continue preparing** resumes the same session without marking its listener as playing. `POST /api/sessions/:id/prepare` accepts `{listenerId}`; status and debug polling remain read-only and never renew playback activity.
+
+## Automatic layered scenes (advanced)
+
+Enter **one scene description**, enable **Layered scene (advanced)**, and choose **Prepare scene**. For example: “A café with soft jazz piano, indistinct conversation, an espresso machine humming and occasional cup clinks.” The local planner chooses which layers belong in the scene, writes isolated-source prompts with shared acoustics, and sets their relative levels, continuity, gaps and variability. There are no manual track controls. The simpler scene mode remains the default.
+
+Preparation takes longer because each selected layer has its own recordings. The UI shows the chosen layers, completed recordings and the existing measured readiness estimate; an unfamiliar workload stays indeterminate until enough local timing data exists. All initial pools are attempted before playback, but failure of an optional layer is reported and lets the remaining scene proceed. Required-layer failure stops preparation. Music or crowds that define the prompt should be required; optional background additions may be omitted on failure.
+
+| Layer | Clip duration | Initial recordings | Maximum pool |
+| --- | --- | --- | --- |
+| Environmental ambience | 90 s | 4 | 4 |
+| Requested music | 120 s | 2 | 3 |
+| Human activity / crowd | 75 s | 2 | 3 |
+| Discrete effects | 10 s | 2 | 6 |
+
+Only selected layers are generated. The configured local sound model handles all selected sources; Medium MLX is the current setup. Assets are generated sequentially, validated and cached separately. Music, activity and effects enter at independently seeded offsets. Café music can be continuous; a live-band scene can have gaps between full passages. Music fades are capped at four seconds, effects at two seconds. This does not synchronize tempo/key, generate full-length songs, or guarantee clean source isolation. Listen for duplicated sources and musical transitions before relying on a scene overnight.
+
+The controller mixes everything into **one HLS stream and one player**. It persists per-layer random state, selected clips, envelopes and pool membership; pause/restart resumes the same world. It schedules at most 210 seconds ahead and retains ten minutes of consumed intervals, with explicit per-layer and mixer-input caps. Recent-clip cooldowns and weighted choices reduce repetition. Gains reserve aggregate headroom and the existing output limiter remains in place. Optional ducking and musical continuation are future fidelity work.
+
+While playback has at least 60 seconds buffered and inference is otherwise free, pools may grow one recording at a time to the limits above. Expansion never blocks PCM refill. Pause, watchdog expiry and shutdown cancel that work; expansion failure keeps the existing pool and shows a warning. Future clips use new assets without rewriting already scheduled intervals or committed audio.
+
+`POST /api/sessions` accepts `{mode: "ambience", prompt, generationMode: "layered", sleepMode: false}`. A nonempty prompt and enabled local sound generation are required. Status exposes the layer summary; `/api/debug/sessions/:id` additionally exposes `layeredTimeline`. `pnpm soak:record` records the layer timelines and includes per-layer clip/pool maxima. Polling still does not renew listener activity.
+
+`pnpm audio:layers` runs isolated synthetic-model/real-FFmpeg checks for layered HLS, chunk continuity, bounded pool expansion, cache reuse, optional failures, cancellation and SQLite restart. `pnpm audio:layers --real` runs Qwen and the configured sound model, saves assets/measurements under `data/layer-checks/`, and decodes a short real HLS sample. These checks do not establish perceptual quality or multi-hour stability.
 
 ## Sleep mode and scene level
 
@@ -360,4 +383,4 @@ Phase 5 software covers measured preparation feedback, reuse scoring, explicit s
 
 Use the soak recorder above for measured multi-hour playback. v0.1 still requires the final eight-hour physical-device run with locked screen and Bluetooth sleep buds, plus recovery and resource checks recorded in [PLAN.md](PLAN.md). Automated tests and desktop browser playback do not close those gates.
 
-Native Ollama and the installed Medium MLX worker remain the development setup. Docker/OrbStack is unnecessary for the current runtime. Advanced independent audio layers remain deferred and do not block v0.1.
+Native Ollama and the installed Medium MLX worker remain the development setup. Docker/OrbStack is unnecessary for the current runtime. Advanced independent audio layers are an experimental opt-in prototype and do not block v0.1.

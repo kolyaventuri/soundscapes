@@ -90,9 +90,17 @@ try {
 	const awakeCafe = await planner.parseScene('A cafe with jazz piano and crowd murmur, a place to fall asleep.', signal, false);
 	assert.equal(awakeCafe.sleepMode, false);
 	assert.deepEqual(awakeCafe.constraints, []);
+	const layeredCafe = await planner.planLayers(cafe, signal);
+	assert.deepEqual(layeredCafe.layers.map(layer => layer.id), ['ambience', 'music', 'activity', 'effects']);
+	assert.equal(layeredCafe.layers.find(layer => layer.id === 'music')?.playback, 'continuous');
+	const layeredRain = await planner.planLayers(defaulted, signal);
+	assert.deepEqual(layeredRain.layers.map(layer => layer.id), ['ambience']);
+	const layeredBand = await planner.planLayers({...cafe, originalPrompt: 'A live jazz band in a small club, with pauses between songs and a murmuring audience.'}, signal);
+	assert.equal(layeredBand.layers.find(layer => layer.id === 'music')?.playback, 'gapped');
+	assert.ok(layeredBand.layers.some(layer => layer.id === 'activity'));
 	const result = {
 		at: new Date().toISOString(), model: config.planner.model, sceneMs, nullMs, eventMs,
-		maximumModelBytes, maximumGpuBytes, scene, empty, proposal, generatedProposal, generationProposalMs, defaulted, cafe, sleepCafe, awakeCafe,
+		maximumModelBytes, maximumGpuBytes, scene, empty, proposal, generatedProposal, generationProposalMs, defaulted, cafe, sleepCafe, awakeCafe, layeredCafe, layeredRain, layeredBand,
 		note: 'Real local model calls. Memory is sampled Ollama-reported model/VRAM allocation, not total host usage or an overnight result.',
 	};
 	const directory = path.join(config.dataDirectory, 'planner-checks');

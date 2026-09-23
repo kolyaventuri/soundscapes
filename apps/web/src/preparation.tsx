@@ -5,7 +5,7 @@ const labels: Record<PreparationProgress['stage'], string> = {
 	checking: 'Checking saved audio',
 	queued: 'Waiting for the audio generator',
 	loading: 'Loading the audio model',
-	generating: 'Creating your ambience',
+	generating: 'Creating your scene audio',
 	decoding: 'Finishing this recording',
 	validating: 'Checking and balancing the audio',
 	buffering: 'Preparing playback',

@@ -1,5 +1,10 @@
 import {z} from 'zod';
 import {sceneSchema} from './scene.js';
+import {generationModeSchema, layerProgressSchema} from './layers.js';
+
+export {
+	generationModeSchema, layerIdSchema, layerPlanSchema, layerPolicySchema, layerProgressSchema, type LayerPlan, type LayerPolicy,
+} from './layers.js';
 
 export {sceneSchema, eventCategorySchema, type Scene} from './scene.js';
 
@@ -14,7 +19,9 @@ export type HealthResponse = z.infer<typeof healthResponseSchema>;
 export const healthResponseJsonSchema = z.toJSONSchema(healthResponseSchema, {target: 'draft-7'});
 
 export const sessionStatusSchema = z.enum(['initializing', 'active', 'idle', 'stopped', 'error']);
-export const createSessionSchema = z.strictObject({mode: z.enum(['fixture', 'ambience']), prompt: z.string().trim().min(1).max(4000).optional(), sleepMode: z.boolean().optional()});
+export const createSessionSchema = z.strictObject({
+	mode: z.enum(['fixture', 'ambience']), prompt: z.string().trim().min(1).max(4000).optional(), sleepMode: z.boolean().optional(), generationMode: generationModeSchema.optional(),
+});
 export const sessionIdSchema = z.uuid();
 export const listenerControlSchema = z.strictObject({listenerId: z.uuid()});
 export const volumePercentSchema = z.number().int().min(0).max(150);
@@ -22,7 +29,7 @@ export const volumeControlSchema = listenerControlSchema.extend({volumePercent: 
 export const preparationProgressSchema = z.object({
 	stage: z.enum(['understanding', 'checking', 'queued', 'loading', 'generating', 'decoding', 'validating', 'buffering', 'ready']),
 	elapsedMs: z.number().nonnegative(), stageElapsedMs: z.number().nonnegative(),
-	completedBeds: z.number().int().min(0).max(4), totalBeds: z.number().int().min(0).max(4), reusedBeds: z.number().int().min(0).max(4),
+	completedBeds: z.number().int().min(0).max(16), totalBeds: z.number().int().min(0).max(16), reusedBeds: z.number().int().min(0).max(16),
 	step: z.object({completed: z.number().int().nonnegative(), total: z.number().int().positive()}).nullable(),
 	estimate: z.object({lowerMs: z.number().nonnegative(), upperMs: z.number().positive()}).nullable(),
 	estimateReason: z.enum(['measured', 'learning', 'queue', 'overrun', 'paused', 'ready']),
@@ -36,6 +43,7 @@ export const sessionSchema = z.object({
 	audioSource: z.enum(['fixture', 'generated']).default('fixture'),
 	preparation: z.string().default(''),
 	volumePercent: volumePercentSchema.default(100),
+	generationMode: generationModeSchema.default('simple'), layers: z.array(layerProgressSchema).max(4).default([]),
 	recentEvents: z.array(z.object({description: z.string(), simulatedTime: z.iso.datetime()})).max(3).default([]),
 	progress: preparationProgressSchema.nullable().default(null),
 	scene: sceneSchema.nullable().default(null),

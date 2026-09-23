@@ -86,6 +86,27 @@ function SessionPlayback({
 					isRebuffering={session.ready}
 				/>
 			) : null}
+			{session.generationMode === 'layered' && !terminal ? (
+				<div className="layer-summary" aria-label="Scene layers">
+					<p className="notice-title">Layered scene · advanced</p>
+					{session.layers.length === 0 ? (
+						<p>Planning the layers from your description…</p>
+					) : (
+						<ul>
+							{session.layers.map((layer) => (
+								<li key={layer.id}>
+									<strong>{layer.title}</strong>
+									{' · '}
+									{layer.state === 'unavailable'
+										? 'Unavailable'
+										: `${layer.readyClips} recordings ready${layer.state === 'generating' ? ' · Preparing' : ''}`}
+									{layer.warning ? <p role="status">{layer.warning}</p> : null}
+								</li>
+							))}
+						</ul>
+					)}
+				</div>
+			) : null}
 			{session.status === 'idle' && !session.ready ? (
 				<button
 					type="button"
@@ -185,6 +206,53 @@ function SceneSummary({session}: {readonly session: Session}) {
 	);
 }
 
+function LayeredOption({
+	isLayered,
+	isBusy,
+	onChange,
+}: {
+	readonly isLayered: boolean;
+	readonly isBusy: boolean;
+	readonly onChange: (value: boolean) => void;
+}) {
+	return (
+		<>
+			<label className="sleep-mode">
+				<input
+					type="checkbox"
+					checked={isLayered}
+					disabled={isBusy}
+					onChange={(event) => {
+						onChange(event.target.checked);
+					}}
+				/>
+				Layered scene (advanced)
+				<span>
+					Automatically builds the layers from your description. Takes longer to
+					prepare; music, activity and effects can enter independently.
+				</span>
+			</label>
+			{isLayered ? (
+				<p className="preparation-detail">
+					Describe the whole scene above—no track setup needed. Additional
+					recordings take extra time; a live estimate appears as generation
+					progresses. Source separation and musical transitions are
+					experimental.
+				</p>
+			) : null}
+		</>
+	);
+}
+
+function preparationDisabled(
+	busy: boolean,
+	layered: boolean,
+	prompt: string,
+	join: boolean,
+) {
+	return busy || (layered && !prompt.trim() && !join);
+}
+
 export function App() {
 	const [connection, setConnection] = useState<ListenerSession | undefined>(
 		restoreConnection,
@@ -194,6 +262,7 @@ export function App() {
 	const [busy, setBusy] = useState(false);
 	const [prompt, setPrompt] = useState('');
 	const [sleepMode, setSleepMode] = useState(false);
+	const [layered, setLayered] = useState(false);
 	const id = connection?.session.id;
 	const updateSession = useCallback((session: Session) => {
 		setConnection((current) =>
@@ -274,6 +343,7 @@ export function App() {
 							body: JSON.stringify({
 								mode: 'ambience',
 								sleepMode,
+								generationMode: layered ? 'layered' : 'simple',
 								...(prompt.trim() ? {prompt: prompt.trim()} : {}),
 							}),
 						});
@@ -397,13 +467,18 @@ export function App() {
 								Gentler dynamics; keeps requested music and crowd murmur.
 							</span>
 						</label>
+						<LayeredOption
+							isLayered={layered}
+							isBusy={busy}
+							onChange={setLayered}
+						/>
 					</>
 				) : null}
 				{showSetup ? (
 					<button
 						className="primary"
 						type="button"
-						disabled={busy}
+						disabled={preparationDisabled(busy, layered, prompt, join)}
 						onClick={() => {
 							void prepare();
 						}}

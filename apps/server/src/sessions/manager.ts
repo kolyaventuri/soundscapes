@@ -6,7 +6,7 @@ import path from 'node:path';
 import {performance} from 'node:perf_hooks';
 import {z} from 'zod';
 import {
-	sceneSchema, volumePercentSchema, type ListenerSession, type Session, type SessionStatus,
+	sceneSchema, volumePercentSchema, generationModeSchema, type ListenerSession, type Session, type SessionStatus,
 } from '@soundscapes/shared';
 import {
 	playlistSegments, segmentNamePattern, startRenderer, type Renderer, type RendererFactory,
@@ -22,8 +22,11 @@ import {type SoundGenerator} from '../generation/contracts.js';
 import {OllamaPlanner} from '../planning/ollama.js';
 import {EventController, abortable, type PlanningState} from '../planning/controller.js';
 import {
-	planningStateSchema, scheduledEventSchema, type Planner, type ScheduledEvent,
+	planningStateSchema, scheduledEventSchema, layerPlanningTimeout, type Planner, type ScheduledEvent,
 } from '../planning/contracts.js';
+import {
+	createLayeredState, layeredStateSchema, poolSize, type LayeredState,
+} from '../layers/timeline.js';
 import {Preparation} from './preparation.js';
 
 export class SessionError extends Error {
@@ -40,6 +43,11 @@ const fixtureScene = sceneSchema.parse({
 type Record = {
 	id: string;
 	mode: 'fixture' | 'ambience';
+	generationMode: 'simple' | 'layered';
+	layered: LayeredState | undefined;
+	layerAssets: Asset[];
+	expansion: AbortController | undefined;
+	expansionJob: Promise<void> | undefined;
 	scene: z.infer<typeof sceneSchema>;
 	timeline: TimelineState;
 	assetIds: string[];
@@ -69,6 +77,7 @@ type Record = {
 
 const savedSchema = z.object({
 	id: z.uuid(), mode: z.enum(['fixture', 'ambience']), status: z.enum(['initializing', 'active', 'idle', 'stopped', 'error']),
+	generationMode: generationModeSchema.default('simple'), layered: layeredStateSchema.optional(),
 	createdAt: z.number(), elapsedMs: z.number().nonnegative(), error: z.string().optional(),
 	scene: sceneSchema.default(fixtureScene), timeline: timelineSchema, assetIds: z.array(z.uuid()).max(16),
 	listeners: z.array(z.tuple([z.uuid(), z.object({state: z.enum(['playing', 'paused', 'expired']), lastConsumptionAt: z.number()})])).max(16),
@@ -139,7 +148,9 @@ export class SessionManager {
 			const saved = savedSchema.parse(value);
 			const session: Record = {
 				...saved, status: saved.status === 'stopped' || saved.status === 'error' ? saved.status : 'idle',
-				eventAssets: [], controller: undefined, initialization: undefined, progress: undefined, requestedSleepMode: saved.requestedSleepMode,
+				layered: saved.layered,
+				eventAssets: [], layerAssets: [], expansion: undefined, expansionJob: undefined,
+				controller: undefined, initialization: undefined, progress: undefined, requestedSleepMode: saved.requestedSleepMode,
 				error: saved.error, activeSince: undefined, renderer: undefined, pending: Promise.resolve(), currentRun: saved.currentRun,
 				listeners: new Map(saved.listeners.map(([id, listener]) => [id, {...listener, state: listener.state === 'playing' ? 'expired' : listener.state}])),
 				runs: new Map(saved.runs.map(id => [id, path.join(this.directory(saved.id), 'hls', id)])),
@@ -156,9 +167,14 @@ export class SessionManager {
 		}
 	}
 
-	create(mode: 'fixture' | 'ambience' = 'fixture', prompt?: string, requestedSleepMode?: boolean): ListenerSession {
+	create(mode: 'fixture' | 'ambience' = 'fixture', prompt?: string, requestedSleepMode?: boolean, generationMode: 'simple' | 'layered' = 'simple'): ListenerSession {
 		if (prompt && mode !== 'ambience') {
 			throw new SessionError(400, 'Scene prompts require ambience mode');
+		}
+
+		generationModeSchema.parse(generationMode);
+		if (generationMode === 'layered' && (!prompt?.trim() || mode !== 'ambience' || !this.config.sound.enabled)) {
+			throw new SessionError(400, 'Layered scenes need a scene description and enabled local sound generation');
 		}
 
 		if (this.closing) {
@@ -177,6 +193,7 @@ export class SessionManager {
 		}
 
 		const session: Record = {
+			generationMode, layered: undefined, layerAssets: [], expansion: undefined, expansionJob: undefined,
 			id: randomUUID(), mode, scene: {...fixtureScene, title: prompt ? 'Preparing your scene' : fixtureScene.title, originalPrompt: prompt ?? ''},
 			timeline: {seed: Math.floor(Math.random() * 0x1_00_00_00_00), beds: []}, assetIds: [],
 			generationEnabled: Boolean(prompt) && this.config.sound.enabled, preparation: '', progress: undefined,
@@ -300,6 +317,7 @@ export class SessionManager {
 		if (this.listenerCount(session) <= 1) {
 			session.initialization?.abort();
 			session.controller?.cancel();
+			session.expansion?.abort();
 		}
 
 		return this.enqueue(session, async () => {
@@ -318,6 +336,7 @@ export class SessionManager {
 		const session = this.record(id);
 		session.initialization?.abort();
 		session.controller?.cancel();
+		session.expansion?.abort();
 		return this.enqueue(session, async () => {
 			await session.renderer?.stop();
 			for (const listener of session.listeners.values()) {
@@ -406,6 +425,7 @@ export class SessionManager {
 			activeAmbience: session.timeline.beds.filter(bed => bed.startMs <= playbackCursorMs && bed.startMs + bed.durationMs > playbackCursorMs).map(bed => bed.assetId),
 			ambiencePoolSize: session.assetIds.length, degradedSingleBed: session.mode === 'ambience' && session.assetIds.length === 1,
 			scheduledBeds: session.timeline.beds, scheduledEvents: session.scheduledEvents,
+			layeredTimeline: session.layered,
 			generationQueue: this.generation.queue.jobs.filter(job => job.sessionId === session.id),
 			soundWorker: this.generation.generator.diagnostics(),
 			...this.planningDebug(session, playbackCursorMs),
@@ -457,6 +477,7 @@ export class SessionManager {
 					this.save(session);
 					if (session.status === 'active') {
 						session.controller?.tick(this.elapsed(session));
+						this.expandLayerPool(session);
 					}
 				});
 			}
@@ -475,6 +496,7 @@ export class SessionManager {
 		for (const session of this.records.values()) {
 			session.initialization?.abort();
 			session.controller?.cancel();
+			session.expansion?.abort();
 		}
 
 		await Promise.all([...this.records.values()].map(async session => this.enqueue(session, async () => {
@@ -492,6 +514,7 @@ export class SessionManager {
 			this.save(session);
 		})));
 		await Promise.all([...this.records.values()].map(async session => session.controller?.settled()));
+		await Promise.all([...this.records.values()].map(async session => session.expansionJob));
 		await this.generation.close();
 		this.store.close();
 	}
@@ -511,6 +534,7 @@ export class SessionManager {
 	private save(session: Record) {
 		this.store.saveSession(session.id, {
 			id: session.id, mode: session.mode, status: session.status, createdAt: session.createdAt,
+			generationMode: session.generationMode, layered: session.layered,
 			elapsedMs: this.elapsed(session), error: session.error, scene: session.scene, timeline: session.timeline, assetIds: session.assetIds,
 			generationEnabled: session.generationEnabled, preparation: session.preparation,
 			volumePercent: session.volumePercent, requestedSleepMode: session.requestedSleepMode,
@@ -590,6 +614,11 @@ export class SessionManager {
 			id: session.id, mode: session.mode, title: session.mode === 'fixture' ? 'Quiet pink noise' : session.scene.title, status: session.status,
 			audioSource: session.generationEnabled ? 'generated' : 'fixture', preparation: session.preparation,
 			volumePercent: session.volumePercent,
+			generationMode: session.generationMode,
+			layers: session.layered?.layers.map(layer => ({
+				id: layer.policy.id, title: layer.policy.title, required: layer.policy.required, playback: layer.policy.playback,
+				state: layer.state, readyClips: layer.assetIds.length, initialClips: poolSize(layer.policy.id).initial, targetClips: poolSize(layer.policy.id).target, warning: layer.warning,
+			})) ?? [],
 			recentEvents: session.scheduledEvents.filter(event => event.startMs <= this.elapsed(session)).slice(-3).reverse()
 				.map(event => ({description: event.description, simulatedTime: event.simulatedTime})),
 			progress: session.progress?.view(session.status === 'initializing', this.generation.queue.jobs.some(job => job.sessionId !== session.id)) ?? null,
@@ -609,6 +638,7 @@ export class SessionManager {
 
 		if (status !== 'active') {
 			session.controller?.cancel();
+			session.expansion?.abort();
 		}
 
 		if (session.status === status) {
@@ -667,7 +697,9 @@ export class SessionManager {
 				this.save(session);
 			}
 
-			if (session.generationEnabled && session.assetIds.length < 4) {
+			if (session.generationMode === 'layered') {
+				await this.prepareLayers(session, abort.signal);
+			} else if (session.generationEnabled && session.assetIds.length < 4) {
 				session.preparation = 'Preparing ambience 0 of 4';
 				session.progress!.update('checking');
 				await this.generation.beds(session.scene, {
@@ -690,7 +722,7 @@ export class SessionManager {
 	private async start(session: Record) {
 		session.progress = new Preparation(this.store, this.now, session.generationEnabled ? 4 : 0);
 		session.progress.completedBeds = session.generationEnabled ? session.assetIds.length : 0;
-		const bufferProfile = `buffer-v1:${session.mode}:${session.generationEnabled ? 'generated' : 'fixture'}`;
+		const bufferProfile = `buffer-v1:${session.mode}:${session.generationMode}:${session.generationEnabled ? 'generated' : 'fixture'}`;
 		session.progress.plan([{id: 'buffer', profile: bufferProfile}], !session.generationEnabled || session.assetIds.length >= 4);
 		this.transition(session, 'initializing');
 		await this.prepareResources(session);
@@ -710,8 +742,8 @@ export class SessionManager {
 				void this.rendererFailed(session, runId, error);
 			},
 		};
-		const available = session.mode === 'ambience' ? await playableAssets(this.config, this.store) : [];
-		const assets = available.filter(asset => session.generationEnabled ? session.assetIds.includes(asset.id) : !asset.generation);
+		const assets = await this.playbackAssets(session);
+		session.layerAssets = assets;
 		const eventAssets = session.planningEnabled ? await playableAssets(this.config, this.store, 'event') : [];
 		session.eventAssets = eventAssets.filter(asset => asset.event && contextCompatible(asset, session.scene)).slice(0, 64);
 		if (session.mode === 'ambience' && session.assetIds.length === 0) {
@@ -721,7 +753,8 @@ export class SessionManager {
 		const renderer = session.mode === 'ambience' && !this.customRenderer
 			? await startAmbienceRenderer({
 				...options, root: this.config.dataDirectory, temporary: path.join(this.directory(session.id), 'temp', runId),
-				assets: assets.filter(asset => session.assetIds.includes(asset.id)), timeline: session.timeline, playbackMs: () => this.elapsed(session),
+				assets: session.layerAssets, timeline: session.timeline, playbackMs: () => this.elapsed(session),
+				...(session.layered ? {layered: session.layered} : {}),
 				events: session.scheduledEvents, eventAssets: session.eventAssets,
 				onOptionalFailure: error => {
 					this.onEvent('event-mix-error', session.id, String(error).slice(0, 500));
@@ -739,7 +772,7 @@ export class SessionManager {
 			})
 			: await this.factory(options);
 		session.renderer = renderer;
-		if (session.planningEnabled && !session.controller) {
+		if (session.planningEnabled && session.generationMode === 'simple' && !session.controller) {
 			session.controller = this.eventController(session);
 		}
 
@@ -761,6 +794,17 @@ export class SessionManager {
 		}
 
 		this.save(session);
+	}
+
+	private async playbackAssets(session: Record) {
+		const available = session.mode === 'ambience' ? await playableAssets(this.config, this.store) : [];
+		if (session.layered) {
+			available.push(...await playableAssets(this.config, this.store, 'event'));
+		}
+
+		return available.filter(asset => session.generationEnabled
+			? session.assetIds.includes(asset.id)
+			: !asset.generation && (session.assetIds.length === 0 || session.assetIds.includes(asset.id)));
 	}
 
 	private async rendererFailed(session: Record, runId: string, error: Error) {
@@ -790,10 +834,114 @@ export class SessionManager {
 		return {
 			nextEventOpportunitySeconds: session.planningEnabled && session.planning.nextOpportunityMs !== null ? Math.max(0, session.planning.nextOpportunityMs - playbackCursorMs) / 1000 : null,
 			planning: {
-				...session.planning, enabled: session.planningEnabled, busy: session.controller?.busy ?? false, model: this.config.planner.model,
+				...session.planning, enabled: session.planningEnabled && session.generationMode === 'simple', busy: session.controller?.busy ?? false, model: this.config.planner.model,
 			},
 			modelState: {plannerRequestActive: this.planner.busy, residency: 'not-polled; requests use keep_alive=0'}, modelsLoaded: {llm: null, sound: this.generation.generator.diagnostics().loaded},
 		};
+	}
+
+	private async prepareLayers(session: Record, signal: AbortSignal) {
+		const progress = session.progress!;
+		if (!session.layered) {
+			if (!this.planner.planLayers) {
+				throw new Error('The local planner does not support layered scenes');
+			}
+
+			progress.begin('layers', `planner:${this.config.planner.model}:layers-v1`, 'understanding');
+			const bounded = AbortSignal.any([signal, AbortSignal.timeout(layerPlanningTimeout(this.config.planner.timeoutMs))]);
+			const plan = await abortable(this.planner.planLayers(session.scene, bounded), bounded);
+			session.layered = createLayeredState(plan, session.timeline.seed);
+			progress.complete();
+			this.save(session);
+		}
+
+		await this.generation.prepareLayerTasks(session.layered, progress);
+		progress.completedBeds = 0;
+		for (const [index, layer] of session.layered.layers.entries()) {
+			const {initial} = poolSize(layer.policy.id);
+			if (layer.state !== 'unavailable') {
+				try {
+					for (let variant = layer.assetIds.length; variant < initial; variant++) {
+						layer.state = 'generating';
+						session.preparation = `Preparing ${layer.policy.title}`;
+						// eslint-disable-next-line no-await-in-loop -- Sequential generation shares one worker across all layers.
+						const asset = await this.generation.layerAsset(session.scene, {plan: session.layered.plan, policy: layer.policy, variant}, {
+							sessionId: session.id, signal, valid: () => !this.closing && session.status === 'initializing',
+						}, progress);
+						signal.throwIfAborted();
+						layer.assetIds.push(asset.id);
+						session.assetIds = session.layered.layers.flatMap(item => item.assetIds);
+						progress.completedBeds = session.layered.layers.reduce((sum, item) => sum + Math.min(item.assetIds.length, poolSize(item.policy.id).initial), 0);
+						this.onEvent('layer-prepared', session.id, `${layer.policy.id}: ${layer.assetIds.length}/${initial}`);
+						this.save(session);
+					}
+
+					layer.state = 'ready';
+				} catch (error) {
+					signal.throwIfAborted();
+					if (layer.policy.required) {
+						throw error;
+					}
+
+					layer.state = 'unavailable';
+					layer.warning = 'This optional layer could not be prepared. The remaining scene is available.';
+					this.onEvent('optional-layer-unavailable', session.id, `${layer.policy.id}: ${String(error).slice(0, 250)}`);
+				}
+			}
+
+			for (let variant = 0; variant < initial; variant++) {
+				progress.skip(`generate-${(index * 10) + variant}`);
+				progress.skip(`validate-${(index * 10) + variant}`);
+			}
+		}
+
+		progress.completedBeds = session.layered.layers.reduce((sum, layer) => sum + Math.min(layer.assetIds.length, poolSize(layer.policy.id).initial), 0);
+		this.save(session);
+	}
+
+	private expandLayerPool(session: Record) {
+		if (!session.layered || Boolean(session.expansionJob) || this.generation.queue.jobs.length > 0 || this.planner.busy
+			|| this.debug(session.id).bufferAheadSeconds < 60) {
+			return;
+		}
+
+		const layer = session.layered.layers.find(layer => layer.state === 'ready' && !layer.expansionFailed && layer.assetIds.length < poolSize(layer.policy.id).target);
+		if (!layer) {
+			return;
+		}
+
+		const {plan} = session.layered;
+		const abort = new AbortController();
+		session.expansion = abort;
+		const work = async () => {
+			try {
+				const asset = await this.generation.layerAsset(session.scene, {plan, policy: layer.policy, variant: layer.assetIds.length}, {
+					sessionId: session.id, signal: abort.signal, valid: () => !this.closing && session.status === 'active' && layer.state === 'ready',
+				});
+				abort.signal.throwIfAborted();
+				if (this.closing || session.status !== 'active' || layer.state !== 'ready') {
+					return;
+				}
+
+				layer.assetIds.push(asset.id);
+				session.assetIds.push(asset.id);
+				session.layerAssets.push(asset);
+				this.onEvent('layer-pool-expanded', session.id, `${layer.policy.id}: ${layer.assetIds.length}`);
+				this.save(session);
+			} catch (error) {
+				if (!abort.signal.aborted && !this.closing && session.status === 'active') {
+					layer.expansionFailed = true;
+					layer.warning = 'Additional variations could not be prepared. This layer is continuing with its existing recordings.';
+					this.onEvent('layer-expansion-failed', session.id, `${layer.policy.id}: ${String(error).slice(0, 250)}`);
+					this.save(session);
+				}
+			} finally {
+				session.expansion = undefined;
+				session.expansionJob = undefined;
+			}
+		};
+
+		session.expansionJob = work();
 	}
 
 	private eventController(session: Record) {

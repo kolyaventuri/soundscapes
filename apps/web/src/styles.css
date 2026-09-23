@@ -63,3 +63,12 @@ a { color: #cbd8b7; }
 .stream-level input { display: block; width: 100%; min-height: 36px; margin: 8px 0; accent-color: #cbd8b7; }
 .stream-level p { color: #aebfb5; font-size: 12px; line-height: 1.6; }
 @media (max-width: 480px) { section { padding: 40px 0; } h1 { font-size: 48px; } .phase-label { display: none; } }
+.layer-summary {
+	margin-block: 1rem;
+	padding: 1rem;
+	border: 1px solid #ffffff24;
+	border-radius: 1rem;
+}
+
+.layer-summary ul { padding-left: 1.2rem; }
+.layer-summary li { margin-block: 0.65rem; }

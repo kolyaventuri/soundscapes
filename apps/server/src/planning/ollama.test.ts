@@ -3,6 +3,7 @@ import {
 	afterEach, expect, it, vi,
 } from 'vitest';
 import {readConfig} from '../config.js';
+import {testPlan} from '../layers/fixtures.js';
 import {OllamaPlanner} from './ollama.js';
 
 afterEach(() => {
@@ -16,6 +17,25 @@ const skip = {
 	decision: 'skip', description: '', assetId: '', category: 'none', durationSeconds: 0, prominence: 0, reason: 'No matching asset',
 };
 const response = (content: unknown, doneReason = 'stop') => new Response(JSON.stringify({done: true, done_reason: doneReason, message: {content: JSON.stringify(content)}}));
+
+it('derives constrained layer policies from the single scene, preserving the shared local request and validation boundary', async () => {
+	const separated = {acoustics: testPlan.acoustics, ...Object.fromEntries(testPlan.layers.map(({id, ...policy}) => [id, policy]))};
+	const fetch = vi.fn(async () => response(separated));
+	vi.stubGlobal('fetch', fetch);
+	const planner = new OllamaPlanner(readConfig({}).planner);
+	const originalPrompt = 'A café with jazz and conversation.';
+	expect(await planner.planLayers({...scene, originalPrompt}, new AbortController().signal)).toEqual(testPlan);
+	const call = fetch.mock.calls[0] as unknown as [string, RequestInit];
+	expect(call[1].body).toContain(originalPrompt);
+	expect(call[1].body).toContain('"keep_alive":0');
+	const music = testPlan.layers.find(layer => layer.id === 'music')!;
+	vi.stubGlobal('fetch', vi.fn(async () => response({...separated, music: {...music, id: undefined, fadeSeconds: 15}})));
+	const bounded = await planner.planLayers(scene, new AbortController().signal);
+	expect(bounded.layers.find(layer => layer.id === 'music')?.fadeSeconds).toBe(4);
+	vi.stubGlobal('fetch', vi.fn(async () => response({...separated, ambience: {...testPlan.layers[0], id: undefined, gapSeconds: {minimum: 5, maximum: 0}}})));
+	await expect(planner.planLayers(scene, new AbortController().signal)).rejects.toThrow('gap policy');
+	expect(planner.busy).toBe(false);
+});
 
 it('uses constrained local requests, unloads after each request, and converts explicit skips to null', async () => {
 	const fetch = vi.fn<(url: string, init: RequestInit) => Promise<Response>>(async () => response(skip));

@@ -139,6 +139,11 @@ export class RunSummary {
 			this.metric('scheduledEventCount', session.scheduledEvents.length);
 		}
 
+		for (const layer of session?.layeredTimeline?.layers ?? []) {
+			this.metric(`layer.${layer.policy.id}.clips`, layer.clips.length);
+			this.metric(`layer.${layer.policy.id}.assets`, layer.assetIds.length);
+		}
+
 		if (session?.planning) {
 			this.metric('eventOpportunities', session.planning.opportunities);
 			this.metric('eventSkips', session.planning.skipped);

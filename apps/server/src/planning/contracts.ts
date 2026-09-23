@@ -1,5 +1,8 @@
 import {z} from 'zod';
-import {eventCategorySchema, type Scene} from '@soundscapes/shared';
+import {eventCategorySchema, type LayerPlan, type Scene} from '@soundscapes/shared';
+
+// Planning several isolated sources needs a larger, still bounded initialization budget.
+export const layerPlanningTimeout = (timeoutMs: number) => Math.min(120_000, timeoutMs * 2);
 
 export const eventProposalSchema = z.strictObject({
 	event: z.string().trim().min(1).max(500).nullable(), assetId: z.uuid().nullable(), category: eventCategorySchema.nullable(),
@@ -23,6 +26,7 @@ export type PlannerContext = {
 };
 export type Planner = {
 	parseScene: (prompt: string, signal: AbortSignal, sleepMode?: boolean) => Promise<Scene>;
+	planLayers?: (scene: Scene, signal: AbortSignal) => Promise<LayerPlan>;
 	propose: (context: PlannerContext, signal: AbortSignal) => Promise<EventProposal>;
 	readonly busy: boolean;
 };

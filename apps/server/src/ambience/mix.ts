@@ -12,11 +12,15 @@ export const bytesPerSecond = 44_100 * 2 * 2;
 // Each chunk is a slice of the same absolute envelopes, so fades cross chunk
 // boundaries without restarting. DSP stays in FFmpeg; one continuous encoder
 // applies the output limiter and preserves AAC state between PCM chunks.
-type MixOptions = {beds: Bed[]; assets: Asset[]; events?: ScheduledEvent[]; root: string; startMs: number; durationMs: number; output: string};
+type MixOptions = {beds: Array<Bed & {gain?: number}>; assets: Asset[]; events?: ScheduledEvent[]; root: string; startMs: number; durationMs: number; output: string};
 export function mixArguments({beds, assets, events = [], root, startMs, durationMs, output}: MixOptions) {
 	const overlap = beds.filter(bed => bed.startMs < startMs + durationMs && bed.startMs + bed.durationMs > startMs);
 	if (overlap.length === 0) {
 		throw new Error('Timeline has no audio at the requested position');
+	}
+
+	if (overlap.length > 32) {
+		throw new Error('Too many simultaneous mixer inputs');
 	}
 
 	// One graph worker bounds DSP concurrency and avoids cross-input scheduling stalls.
@@ -29,11 +33,14 @@ export function mixArguments({beds, assets, events = [], root, startMs, duration
 		}
 
 		args.push('-i', path.join(root, asset.file));
-		const offset = Math.max(0, startMs - bed.startMs) / 1000;
-		const delay = Math.max(0, bed.startMs - startMs);
+		const startSample = Math.round(startMs * 44.1);
+		const bedSample = Math.round(bed.startMs * 44.1);
+		const offset = Math.max(0, startSample - bedSample);
+		const delay = Math.max(0, bedSample - startSample);
 		const fadeIn = bed.fadeInMs > 0 ? `afade=t=in:d=${bed.fadeInMs / 1000}:curve=qsin,` : '';
 		const fadeOut = bed.fadeOutMs > 0 ? `afade=t=out:st=${(bed.durationMs - bed.fadeOutMs) / 1000}:d=${bed.fadeOutMs / 1000}:curve=qsin,` : '';
-		filters.push(`[${index}:a]${fadeIn}${fadeOut}atrim=start=${offset}:duration=${durationMs / 1000},asetpts=PTS-STARTPTS,adelay=${delay}:all=1[a${index}]`);
+		const gain = bed.gain === undefined ? '' : `volume=${bed.gain},`;
+		filters.push(`[${index}:a]${fadeIn}${fadeOut}${gain}atrim=start_sample=${offset}:end_sample=${offset + Math.round(durationMs * 44.1)},asetpts=PTS-STARTPTS,adelay=${delay}S:all=1[a${index}]`);
 	}
 
 	const labels = overlap.map((bed, index) => `[a${index}]`);
@@ -46,8 +53,10 @@ export function mixArguments({beds, assets, events = [], root, startMs, duration
 
 		const index = labels.length;
 		args.push('-i', path.join(root, asset.file));
-		const offset = Math.max(0, startMs - event.startMs) / 1000;
-		const delay = Math.max(0, event.startMs - startMs);
+		const startSample = Math.round(startMs * 44.1);
+		const eventSample = Math.round(event.startMs * 44.1);
+		const offset = Math.max(0, startSample - eventSample);
+		const delay = Math.max(0, eventSample - startSample);
 		const fade = Math.min(event.fadeMs, event.durationMs / 2) / 1000;
 		const processing = [
 			`atrim=start=${(event.offsetMs ?? 0) / 1000}:duration=${event.durationMs / 1000}`,
@@ -57,9 +66,9 @@ export function mixArguments({beds, assets, events = [], root, startMs, duration
 			`pan=stereo|c0=${1 - Math.max(0, event.pan)}*c0|c1=${1 + Math.min(0, event.pan)}*c1`,
 			`afade=t=in:d=${fade}`,
 			`afade=t=out:st=${(event.durationMs / 1000) - fade}:d=${fade}`,
-			`atrim=start=${offset}:end=${Math.min(event.durationMs / 1000, offset + (durationMs / 1000))}`,
+			`atrim=start_sample=${offset}:end_sample=${Math.min(Math.round(event.durationMs * 44.1), offset + Math.round(durationMs * 44.1))}`,
 			'asetpts=PTS-STARTPTS',
-			`adelay=${delay}:all=1`,
+			`adelay=${delay}S:all=1`,
 		];
 		filters.push(`[${index}:a]${processing.join(',')}[a${index}]`);
 		labels.push(`[a${index}]`);

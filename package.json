@@ -34,7 +34,8 @@
     "audio:phase4": "pnpm --filter @soundscapes/server audio:phase4",
     "lan:smoke": "pnpm --filter @soundscapes/server lan:smoke",
     "audio:level": "pnpm --filter @soundscapes/server audio:level && pnpm --filter @soundscapes/server audio:level --pcm",
-    "acceptance:run": "pnpm --filter @soundscapes/server acceptance:run"
+    "acceptance:run": "pnpm --filter @soundscapes/server acceptance:run",
+    "audio:layers": "pnpm --filter @soundscapes/server audio:layers"
   },
   "devDependencies": {
     "@types/node": "^24.13.6",
