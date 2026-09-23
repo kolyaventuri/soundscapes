@@ -278,24 +278,38 @@ This runs three hours of decoding plus lifecycle checks and cleans up its tempor
 
 For a session ID from the page's `?session=...` URL, open `/api/debug/sessions/<id>` on the same server origin. It shows state, `rendering`, `producerPid`, playback/render/commit cursors, buffer bounds, PCM queue depth, selected beds, simulated time, and each listener’s consumption age. It also exposes the parsed scene, scheduled events, planning counters/model, next opportunity, active planner request, `soundWorker` PID/busy/residency, and a bounded per-session `generationQueue`. The recorder captures these plus the Python worker RSS/CPU when present in the server process tree. `modelsLoaded.llm` is `null` because request state does not prove actual model residency; inspect Ollama `/api/ps` for that. Event opportunity/skip/schedule/mix-failure messages enter the same diagnostic journal. Normal logs record lifecycle transitions without routine per-segment request logging. The watchdog now logs `event: "listener-expired"` with the timeout reason, followed by `event: "idle"` when the last listener expires. Both use `msg: "Session lifecycle"` at info level. `expired` is a listener state; after the last listener expires, confirm the top-level `status: "idle"`, `rendering: false`, and `producerPid: null`. Inspect this endpoint from the Mac while the phone is disconnected. If another listener remains active, rendering correctly continues. An info-level lifecycle message will be hidden if `LOG_LEVEL` is set to warn, error, fatal, or silent.
 
-`pnpm check` currently passes 67 tests, lint, type checks, and production builds. The production build reports a bundle-size warning from the full HLS.js fallback; reducing that bundle is a later optimization. Desktop Chrome native HLS was verified through play, pause, resume, and stop. The embedded Codex preview crashed on playback; use regular Safari or Chrome for playback testing. The HLS.js fallback itself has not received browser acceptance yet.
+`pnpm check` runs the automated tests, lint, type checks, and production builds. See [ACCEPTANCE.md](ACCEPTANCE.md) for the verification matrix and latest measured run. The production build reports a bundle-size warning from the full HLS.js fallback; reducing that bundle is a later optimization. Desktop Chrome native HLS was verified through play, pause, resume, and stop. The embedded Codex preview crashed on playback; use regular Safari or Chrome for playback testing. The HLS.js fallback itself has not received browser acceptance yet.
+
+## Short real-model acceptance
+
+With the installed local sound model and the separate Ollama service running, use:
+
+```sh
+pnpm acceptance:run
+```
+
+This creates its own data directory and loopback test server, parses the Central Park 1932 example, generates four beds, decodes four minutes of real HLS, and measures levels, resources and inference calls. It then checks explicit pause, stream-loss expiry, restart with the same world/listener, and a repeated prompt reusing the four beds. Event timing is accelerated 20× and the watchdog is 30 seconds; model decisions remain real, including valid nulls. Production settings are unchanged. Allow several minutes for generation plus playback; avoid other inference for useful measurements.
+
+The printed `data/acceptance/<timestamp>-<suffix>/report.json` records actual outcomes, model results, generated asset levels, recovery checks and playback summary; bounded `samples.jsonl` holds five-second measurements. Reports and generated assets remain available after its test server and workers stop. A failure saves evidence and exits nonzero. This is a server-side decoder check, not physical listening or a replacement for overnight acceptance. The recorder omits external Ollama/GPU allocation; worker results additionally report their own peak RSS.
 
 ## Record an unattended playback run
 
-Use a fixed production build for tonight's run. Stop your development server first if it owns port 3000 or the same data directory, then run in one terminal:
+Use a fixed production build for tonight's run. Stop your development server first if it owns the port or the same data directory, then use the HTTPS setup already installed on the phone:
 
 ```sh
 pnpm build
-pnpm start
+HOST=:: TLS_CERT_FILE=data/tls/lan-with-ip.pem TLS_KEY_FILE=data/tls/lan-with-ip-key.pem PORT=3443 pnpm start
 ```
 
-On the iPhone, open `http://<Mac-LAN-IP>:3000`, prepare/resume the ambience stream, and start playback. Copy the session UUID from the page's `?session=...` URL. In another terminal on the **same Mac**, from this repository:
+On the iPhone, open the installed PWA (or your verified `https://<Mac-LAN-IP>:3443` address), prepare/resume the ambience stream, and start playback. Copy the session UUID from the page's `?session=...` URL. In another terminal on the **same Mac**, from this repository:
 
 ```sh
-caffeinate -i pnpm soak:record --session YOUR_SESSION_UUID --hours 8 --device "iPhone 15; iOS version; Safari; sleep-bud model"
+NODE_EXTRA_CA_CERTS="$(mkcert -CAROOT)/rootCA.pem" caffeinate -i pnpm soak:record --url https://127.0.0.1:3443 --session YOUR_SESSION_UUID --hours 8 --device "iPhone 15; iOS version; installed PWA; sleep-bud model"
 ```
 
-Replace the UUID and device notes with the actual values. `caffeinate -i` prevents idle system sleep while recording; keep the Mac powered and its lid open. Lock the phone and leave playback running. Do not restart/rebuild the server during the test. The recorder neither starts nor stops the server and does not start audio playback.
+Replace the UUID and device notes with the actual values. `NODE_EXTRA_CA_CERTS` supplies the public local CA certificate to Node when the recorder starts; it keeps certificate and hostname verification enabled and does not alter system trust. The server certificate must cover `127.0.0.1`, as in the documented setup. `pnpm lan:smoke` verifies this recorder path using a temporary test certificate, including rejection of untrusted/mismatched certificates and watchdog expiry despite recording. Never use the CA private key or disable TLS verification.
+
+`caffeinate -i` prevents idle system sleep while recording; keep the Mac powered and its lid open. Lock the phone and leave playback running. Do not restart/rebuild the server during the test. The recorder neither starts nor stops the server and does not start audio playback. For plain HTTP development, use `pnpm start` and `--url http://127.0.0.1:3000`; PWA acceptance uses HTTPS.
 
 Defaults: poll every **30 seconds**, stop after **8 hours**, API origin `http://127.0.0.1:3000` (or configured `PORT`). Override with `--interval 60`, `--hours 10`, or `--url http://127.0.0.1:PORT`; `pnpm soak:record --help` lists all options. It loads the same `.env`/`DATA_DIR` as the server and verifies host/data-directory identity before measuring local processes and files. Start the updated server before using this command; an older server lacks `/api/debug/monitoring`.
 
