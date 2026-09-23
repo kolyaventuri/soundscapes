@@ -5,6 +5,7 @@ import {readConfig, type AppConfig} from './config.js';
 import {claimServer, openStore} from './persistence/open.js';
 import {SessionManager} from './sessions/manager.js';
 import {registerSessionRoutes} from './sessions/routes.js';
+import {Diagnostics} from './monitoring/diagnostics.js';
 
 type AppOptions = {
 	logger?: FastifyServerOptions['logger'];
@@ -14,6 +15,8 @@ type AppOptions = {
 };
 
 export async function buildApp({logger = false, webRoot, config = readConfig(), sessions}: AppOptions = {}) {
+	const diagnostics = new Diagnostics();
+	diagnostics.record('server-started');
 	const app = fastify({
 		logger, bodyLimit: 16_384, logController: new LogController({disableRequestLogging: true}), ajv: {customOptions: {removeAdditional: false, coerceTypes: false}},
 	});
@@ -23,6 +26,7 @@ export async function buildApp({logger = false, webRoot, config = readConfig(), 
 		...(store ? {store} : {}),
 		config,
 		onEvent(event, sessionId, detail) {
+			diagnostics.record(event, sessionId, detail);
 			app.log.info({sessionId, event, detail}, 'Session lifecycle');
 		},
 	});
@@ -37,10 +41,16 @@ export async function buildApp({logger = false, webRoot, config = readConfig(), 
 	}
 
 	app.addHook('onClose', async () => {
+		diagnostics.record('server-closing');
 		try {
 			await manager.close();
 		} finally {
 			await release?.();
+		}
+	});
+	app.addHook('onError', async (request, reply, error) => {
+		if ((error.statusCode ?? 500) >= 500) {
+			diagnostics.record('request-error', 'server', error.message);
 		}
 	});
 	app.addHook('onSend', async (request, reply, payload) => {
@@ -60,6 +70,7 @@ export async function buildApp({logger = false, webRoot, config = readConfig(), 
 		stage: 'procedural-ambience',
 	}));
 	registerSessionRoutes(app, manager);
+	app.get('/api/debug/monitoring', async () => diagnostics.snapshot(config));
 
 	if (webRoot) {
 		await app.register(fastifyStatic, {root: webRoot});

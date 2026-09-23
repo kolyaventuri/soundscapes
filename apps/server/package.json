@@ -13,7 +13,8 @@
     "typecheck": "tsc --noEmit",
     "ambience:create": "node --import tsx src/cli/create-ambience.ts",
     "audio:phase2": "node --import tsx src/cli/audio-integration.ts --ambience",
-    "audio:mixer": "node --import tsx src/cli/mixer-smoke.ts"
+    "audio:mixer": "node --import tsx src/cli/mixer-smoke.ts",
+    "soak:record": "node --import tsx src/cli/soak-record.ts"
   },
   "dependencies": {
     "@fastify/static": "^10.1.4",

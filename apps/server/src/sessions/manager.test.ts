@@ -114,6 +114,34 @@ it('idles after stream loss despite status/playlist polling and resumes an expir
 	expect(manager.get(session.id)).toMatchObject({status: 'active', rendering: true});
 });
 
+it('expires and freezes playback despite repeated recorder debug requests', async () => {
+	const {manager, config, advance} = await setup();
+	const app = await buildApp({config, sessions: manager});
+	const {session, listenerId} = manager.create();
+	try {
+		await manager.play(session.id, listenerId);
+		for (let index = 0; index < 4; index++) {
+			advance(30_000);
+			// eslint-disable-next-line no-await-in-loop -- Simulate serial sampling across watchdog expiry.
+			const responses = await Promise.all([app.inject(`/api/debug/sessions/${session.id}`), app.inject('/api/debug/monitoring')]);
+			expect(responses.map(response => response.statusCode)).toEqual([200, 200]);
+			expect(responses[1].headers['cache-control']).toBe('no-store');
+			// eslint-disable-next-line no-await-in-loop -- Advance the watchdog between samples.
+			await manager.sweep();
+		}
+
+		expect(manager.debug(session.id)).toMatchObject({
+			status: 'idle', rendering: false, producerPid: null, listenerCount: 0,
+		});
+		const elapsed = manager.get(session.id).activeElapsedMs;
+		advance(60_000);
+		await app.inject(`/api/debug/sessions/${session.id}`);
+		expect(manager.get(session.id).activeElapsedMs).toBe(elapsed);
+	} finally {
+		await app.close();
+	}
+});
+
 it('only successful current-run segment consumption extends listener demand', async () => {
 	const {manager, advance} = await setup();
 	const {session, listenerId} = manager.create();

@@ -85,7 +85,7 @@ pnpm audio:mixer # Exact PCM continuity and crossfade level checks
 pnpm audio:phase2 # Ambience HTTP playback, buffers, lifecycle, and restart
 ```
 
-The 24 Vitest tests cover contracts/routes, validation, static serving, initialization, multiple listeners, pause/stop races, stale requests, elapsed time, watchdog/reconnect, retention, renderer failures, SQLite/ownership recovery, and an eight-hour simulated bed schedule. They do not need FFmpeg. The audio commands require FFmpeg/ffprobe and clean up their temporary outputs. `audio:integration` starts its own temporary server, decodes the HTTP stream, checks frozen output after pause, resumes, verifies a watchdog accelerated to four seconds, reconnects, and checks stop cleanup. `audio:phase2` additionally creates four beds, decodes 105 seconds of HLS by default, samples buffer bounds, checks retained segment/PCM counts, and verifies playback after a normal restart. Its watchdog is accelerated to 30 seconds. `audio:mixer` compares split PCM chunks against a continuous reference through a crossfade and checks one-second RMS variation. These numeric checks do not establish perceived comfort or overnight reliability.
+The 32 Vitest tests cover contracts/routes, validation, static serving, initialization, multiple listeners, pause/stop races, stale requests, elapsed time, watchdog/reconnect, retention, renderer failures, SQLite/ownership recovery, an eight-hour simulated bed schedule, and monitoring aggregation/rotation/alerts/read-only polling. They do not need FFmpeg. The audio commands require FFmpeg/ffprobe and clean up their temporary outputs. `audio:integration` starts its own temporary server, decodes the HTTP stream, checks frozen output after pause, resumes, verifies a watchdog accelerated to four seconds, reconnects, and checks stop cleanup. `audio:phase2` additionally creates four beds, decodes 105 seconds of HLS by default, samples buffer bounds, checks retained segment/PCM counts, and verifies playback after a normal restart. Its watchdog is accelerated to 30 seconds. `audio:mixer` compares split PCM chunks against a continuous reference through a crossfade and checks one-second RMS variation. These numeric checks do not establish perceived comfort or overnight reliability.
 
 For a longer isolated decoder run (requires the Mac to remain awake):
 
@@ -98,6 +98,40 @@ This runs three hours of decoding plus lifecycle checks and cleans up its tempor
 For a session ID from the page's `?session=...` URL, open `/api/debug/sessions/<id>` on the same server origin. It shows state, `rendering`, `producerPid`, playback/render/commit cursors, buffer bounds, PCM queue depth, selected beds, simulated time, and each listener’s consumption age. Model/next-event fields explicitly show that inference and event scheduling are absent. Normal logs record lifecycle transitions without routine per-segment request logging. The watchdog now logs `event: "listener-expired"` with the timeout reason, followed by `event: "idle"` when the last listener expires. Both use `msg: "Session lifecycle"` at info level. `expired` is a listener state; after the last listener expires, confirm the top-level `status: "idle"`, `rendering: false`, and `producerPid: null`. Inspect this endpoint from the Mac while the phone is disconnected. If another listener remains active, rendering correctly continues. An info-level lifecycle message will be hidden if `LOG_LEVEL` is set to warn, error, fatal, or silent.
 
 `pnpm check` currently passes. The production build reports a bundle-size warning from the full HLS.js fallback; reducing that bundle is a later optimization. Desktop Chrome native HLS was verified through play, pause, resume, and stop. The embedded Codex preview crashed on playback; use regular Safari or Chrome for playback testing. The HLS.js fallback itself has not received browser acceptance yet.
+
+## Record an unattended playback run
+
+Use a fixed production build for tonight's run. Stop your development server first if it owns port 3000 or the same data directory, then run in one terminal:
+
+```sh
+pnpm build
+pnpm start
+```
+
+On the iPhone, open `http://<Mac-LAN-IP>:3000`, prepare/resume the ambience stream, and start playback. Copy the session UUID from the page's `?session=...` URL. In another terminal on the **same Mac**, from this repository:
+
+```sh
+caffeinate -i pnpm soak:record --session YOUR_SESSION_UUID --hours 8 --device "iPhone 15; iOS version; Safari; sleep-bud model"
+```
+
+Replace the UUID and device notes with the actual values. `caffeinate -i` prevents idle system sleep while recording; keep the Mac powered and its lid open. Lock the phone and leave playback running. Do not restart/rebuild the server during the test. The recorder neither starts nor stops the server and does not start audio playback.
+
+Defaults: poll every **30 seconds**, stop after **8 hours**, API origin `http://127.0.0.1:3000` (or configured `PORT`). Override with `--interval 60`, `--hours 10`, or `--url http://127.0.0.1:PORT`; `pnpm soak:record --help` lists all options. It loads the same `.env`/`DATA_DIR` as the server and verifies host/data-directory identity before measuring local processes and files. Start the updated server before using this command; an older server lacks `/api/debug/monitoring`.
+
+The printed output directory is `data/soaks/<timestamp>-<unique suffix>/` (under your configured `DATA_DIR`). It contains:
+
+- **`summary.md`**: readable progress/morning report, including issues and first/last/min/max/mean measurements. Updated atomically after every sample.
+- **`summary.json`**: full-run aggregates, completion state, sample counts, and log-rotation counts.
+- **`manifest.json`**: duration, interval, device notes, host/runtime versions, source revision/dirty state, build-entry timestamp, FFmpeg version, and initial server configuration. Source revision describes the recorder checkout; it does not certify the running server binary.
+- **`samples.jsonl` / `events.jsonl`**: timestamped debug/resource measurements and deduplicated lifecycle/error events. Each retains three files of at most 4 MiB (current, `.1`, `.2`), about **24 MiB total logs per run**. Full-run aggregates survive rotation. Separate runs remain until you remove their directories.
+
+Measurements include active buffer depth, playback/render/commit cursors, listeners/consumption ages, scheduled beds, PCM queue, Node RSS/heap/CPU, sampled FFmpeg descendant RSS/CPU, and session HLS/PCM counts/bytes. Only debug GETs are made: recording never fetches playlists/segments, renews activity, creates listeners, or resumes playback. Polling continues through server outages and records failures; Ctrl-C writes an interrupted summary and leaves playback alone.
+
+The summary flags out-of-bounds buffers, stalled clock/encoder progress, absent producers, unexpected idle/stop/expiry, server errors/restarts, sample/journal gaps, stale bed history, and excessive/growing retention. Intentional pauses also produce review flags. These are diagnostic thresholds, not automatic acceptance criteria. Exit code 0 means the duration completed with no detected issues; 2 means review flags or interruption; 1 means recorder failure. A hard kill/power loss leaves the most recent report marked `recording`; do not treat that as a completed run.
+
+The server's diagnostic journal holds its last 128 lifecycle/error events in memory, independently of `LOG_LEVEL`. Crashes can lose details since the last poll; overflow/restarts are flagged. Keep terminal output available for fatal startup/process errors. Short mixer processes between samples can be missed, FFmpeg CPU is the platform `ps` estimate, and measurements cover all server descendants/sessions. Disk measurements cover the selected session, excluding the reusable library, database, and recorder files. GPU measurement is deferred until inference exists. Run only the test session for the clearest resource attribution.
+
+In the morning, inspect `summary.md`, note whether audio is still audible and the lock-screen controls still work, then stop recording/playback/server as appropriate. Record any audible gaps, device/network changes, or deliberate pauses with approximate times. A quiet report proves only sampled server health; physical listening/Bluetooth acceptance and the final integrated eight-hour gate remain separate.
 
 ## iPhone and Bluetooth acceptance
 
@@ -127,7 +161,7 @@ Runtime files live under ignored `data/` and `models/` directories. Do not commi
 
 ## Next milestone and prerequisites
 
-Phase 3 event-planning development can proceed after the successful short iPhone ambience/crossfade/pause/resume check. Several-hour resource measurements and the remaining locked-screen/Bluetooth/disconnect/reconnect checks with the mixer remain open. Before unattended testing, add the soak recorder tracked in PLAN.md. Do not call v0.1 complete until long-run acceptance passes, including the final eight-hour physical-device run with the integrated application. Configurable volume remains a later UX item.
+Phase 3 event-planning development can proceed after the successful short iPhone ambience/crossfade/pause/resume check. Several-hour resource measurements and the remaining locked-screen/Bluetooth/disconnect/reconnect checks with the mixer remain open; use the soak recorder above. Do not call v0.1 complete until long-run acceptance passes, including the final eight-hour physical-device run with the integrated application. Configurable volume remains a later UX item.
 
 - **PWA foundation only:** a manifest and SVG icon exist; install icons, service-worker behavior, and on-device installation remain in the plan. LAN HTTP does not provide the secure context needed by service workers; decide and document local HTTPS when implementing that layer. See [MDN's service-worker prerequisites](https://developer.mozilla.org/en-US/docs/Web/API/Service_Worker_API/Using_Service_Workers).
 - **Models:** validate hardware, license, available durations, and generation speed before choosing a sound worker. A short-effects model must not be assumed to produce a 90-second ambient bed.

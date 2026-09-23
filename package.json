@@ -23,7 +23,8 @@
     "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build",
     "ambience:create": "pnpm --filter @soundscapes/server ambience:create",
     "audio:phase2": "pnpm --filter @soundscapes/server audio:phase2",
-    "audio:mixer": "pnpm --filter @soundscapes/server audio:mixer"
+    "audio:mixer": "pnpm --filter @soundscapes/server audio:mixer",
+    "soak:record": "pnpm --filter @soundscapes/server soak:record"
   },
   "devDependencies": {
     "@types/node": "^24.13.6",
