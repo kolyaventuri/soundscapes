@@ -13,6 +13,7 @@ if (serveWeb && !existsSync(new URL('../../web/dist/index.html', import.meta.url
 }
 
 const app = await buildApp({
+	config,
 	logger: {level: config.logLevel},
 	...(serveWeb ? {webRoot} : {}),
 });

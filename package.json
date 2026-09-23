@@ -8,6 +8,7 @@
   "scripts": {
     "fixture:create": "pnpm --filter @soundscapes/server fixture:create",
     "audio:smoke": "pnpm --filter @soundscapes/server audio:smoke",
+    "audio:integration": "pnpm --filter @soundscapes/server audio:integration",
     "dev": "pnpm --filter @soundscapes/shared build && pnpm --parallel -r dev",
     "build": "pnpm -r build",
     "start": "pnpm --filter @soundscapes/server start",
