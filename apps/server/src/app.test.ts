@@ -1,6 +1,7 @@
 import {mkdtemp, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
+import {DatabaseSync} from 'node:sqlite';
 import {healthResponseSchema} from '@soundscapes/shared';
 import {expect, it} from 'vitest';
 import {buildApp} from './app.js';
@@ -42,4 +43,21 @@ it('requires both TLS files and resolves them without loading credentials into c
 	expect(() => readConfig({TLS_CERT_FILE: 'data/tls/cert.pem'})).toThrow('configured together');
 	expect(() => readConfig({TLS_KEY_FILE: 'data/tls/key.pem'})).toThrow('configured together');
 	expect(readConfig({TLS_CERT_FILE: '/tmp/cert.pem', TLS_KEY_FILE: '/tmp/key.pem'}).tls).toEqual({certificate: '/tmp/cert.pem', key: '/tmp/key.pem'});
+});
+
+it('releases server ownership when SQLite cannot open, allowing a corrected startup to retry', async () => {
+	const directory = await mkdtemp(path.join(tmpdir(), 'soundscapes-startup-'));
+	const file = path.join(directory, 'soundscapes.sqlite');
+	const database = new DatabaseSync(file);
+	database.exec('PRAGMA user_version=999;');
+	database.close();
+	const config = readConfig({DATA_DIR: directory});
+	try {
+		await expect(buildApp({config})).rejects.toThrow('Unsupported database version 999');
+		await rm(file);
+		const app = await buildApp({config});
+		await app.close();
+	} finally {
+		await rm(directory, {recursive: true, force: true});
+	}
 });

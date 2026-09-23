@@ -23,7 +23,14 @@ export async function buildApp({logger = false, webRoot, config = readConfig(), 
 		logger, bodyLimit: 16_384, logController: new LogController({disableRequestLogging: true}), ajv: {customOptions: {removeAdditional: false, coerceTypes: false}},
 	});
 	const release = sessions ? undefined : await claimServer(config.dataDirectory);
-	const store = sessions ? undefined : await openStore(config.dataDirectory);
+	let store: Awaited<ReturnType<typeof openStore>> | undefined;
+	try {
+		store = sessions ? undefined : await openStore(config.dataDirectory);
+	} catch (error) {
+		await release?.();
+		throw error;
+	}
+
 	const manager = sessions ?? new SessionManager({
 		...(store ? {store} : {}),
 		config,
