@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "fixture:create": "node --import tsx src/cli/create-fixture.ts",
+    "audio:smoke": "node --import tsx src/cli/audio-smoke.ts",
     "dev": "tsx watch --include '../../packages/shared/dist/**/*.js' src/index.ts",
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/index.js --serve-web",

@@ -31,8 +31,8 @@ Exit: a fresh checkout can run `pnpm install` and `pnpm dev`, and the browser ca
 
 Spec: §7, §22–26, §30, §35, §39–41, milestone 1 in §46.
 
-- [ ] Repair/verify local FFmpeg and ffprobe, including AAC encoding and HLS output. Record versions and reproducible setup.
-- [ ] Add one known, licensed local WAV fixture or a documented fixture-import command; keep large audio out of Git.
+- [x] Repair/verify local FFmpeg and ffprobe, including AAC encoding and HLS output. Record versions and reproducible setup.
+- [x] Add one known, licensed local WAV fixture or a documented fixture-import command; keep large audio out of Git.
 - [ ] Define validated session requests/responses and the `initializing`, `active`, `idle`, `stopped`, `error` state machine. Start with an in-memory session repository.
 - [ ] Define initialization versus listener demand: bound initial preparation, enable ongoing work only for listeners, and never leave abandoned initialization generating indefinitely.
 - [ ] Implement session status, play, pause, and stop routes with idempotent controls and invalid-transition handling. Use the fixture explicitly until scene generation exists.
@@ -143,6 +143,7 @@ These do not block v0.1 and should not displace transport reliability, resource 
 | --- | --- | --- | --- |
 | 2026-09-23 | Initial environment | Shell Node `v24.12.0`, pnpm `10.29.3`; repository initially contains only spec and guidance. | Keep the shell-selected Node; advise a current Node 24 LTS patch upgrade. |
 | 2026-09-23 | FFmpeg prerequisite | Homebrew FFmpeg fails to load `/opt/homebrew/opt/x265/lib/libx265.216.dylib`. | Repair/verify before Phase 1; no audio acceptance claimed. |
+| 2026-09-23 | FFmpeg repair and AAC/HLS | User reinstalled FFmpeg; live checks report FFmpeg/ffprobe `9.0.2`. `pnpm audio:smoke` passes stereo 44.1 kHz AAC, 6-second HLS segmentation, sliding playlist, atomic publication, and decoding. | Resolves the earlier x265 blocker. `pnpm fixture:create` creates a deterministic 60-second pink-noise WAV under ignored `data/`; no downloaded/licensed recording is needed. Physical playback remains unverified. |
 | 2026-09-23 | Scaffold `29d49d0` | `pnpm install --frozen-lockfile` and `pnpm check` pass: XO, strict workspace/root type checks, 7 Vitest tests, shared/server/web builds. CI workflow added. | CI itself has not run remotely; no audio or model tests yet. |
 | 2026-09-23 | Browser/runtime `29d49d0` | `pnpm dev` at `:5173` and `pnpm start` at `:3000` both show the local API connected in the in-app browser, with no captured browser errors/warnings. Inspected desktop and 390×844 layout. | Browser viewport only, not a physical iPhone. No HLS, installed PWA, Bluetooth, or background-playback acceptance. |
 | 2026-09-23 | Cleanup | Test tab closed, viewport reset, development/production processes stopped; process inspection found no remaining workspace server/watchers. | No servers intentionally left running. |

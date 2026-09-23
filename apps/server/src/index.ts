@@ -1,14 +1,10 @@
 import {existsSync} from 'node:fs';
-import process, {loadEnvFile} from 'node:process';
+import process from 'node:process';
 import {fileURLToPath} from 'node:url';
 import {buildApp} from './app.js';
-import {readConfig} from './config.js';
+import {loadEnvironment, readConfig} from './config.js';
 
-const environmentFile = fileURLToPath(new URL('../../../.env', import.meta.url));
-if (existsSync(environmentFile)) {
-	loadEnvFile(environmentFile);
-}
-
+loadEnvironment();
 const config = readConfig();
 const serveWeb = process.argv.includes('--serve-web');
 const webRoot = fileURLToPath(new URL('../../web/dist/', import.meta.url));

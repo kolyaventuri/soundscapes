@@ -33,7 +33,7 @@ it.each(['0', '65536', '3000.5', 'not-a-port', ''])('rejects invalid configured 
 });
 
 it('reads environment overrides without requiring a local env file', () => {
-	expect(readConfig({HOST: '127.0.0.1', PORT: '3010', LOG_LEVEL: 'silent'})).toEqual({
+	expect(readConfig({HOST: '127.0.0.1', PORT: '3010', LOG_LEVEL: 'silent'})).toMatchObject({
 		host: '127.0.0.1', port: 3010, logLevel: 'silent',
 	});
 });
