@@ -45,10 +45,12 @@ mkdir -p data/tls
 SOUNDSCAPES_HOST="$(scutil --get LocalHostName).local"
 mkcert -cert-file data/tls/lan.pem -key-file data/tls/lan-key.pem "$SOUNDSCAPES_HOST" localhost 127.0.0.1 ::1
 pnpm build
-TLS_CERT_FILE=data/tls/lan.pem TLS_KEY_FILE=data/tls/lan-key.pem PORT=3443 pnpm start
+HOST=:: TLS_CERT_FILE=data/tls/lan.pem TLS_KEY_FILE=data/tls/lan-key.pem PORT=3443 pnpm start
 ```
 
 On the iPhone, transfer **only `rootCA.pem`** from the directory printed by `mkcert -CAROOT`, install its profile, and enable certificate trust as described in the mkcert mobile-device instructions. Keep `rootCA-key.pem` and the server key private. Open the HTTPS address in Safari without certificate warnings, then use **Share → Add to Home Screen**. Keep Ollama running in its separate terminal. Do not set these TLS variables for the ordinary Vite development command; use this single-origin production launch for installation tests.
+
+`HOST=::` enables IPv4 and IPv6 listening on this Mac; Bonjour can advertise both. If the hostname hangs on a phone but the LAN IP reaches a certificate warning, basic IPv4 connectivity works: check hostname resolution and IPv6 listening. The LAN IP is not included in the certificate above, so its warning is expected; use the certified hostname for normal access.
 
 `TLS_CERT_FILE` and `TLS_KEY_FILE` must be set together; relative paths resolve from the repository root. Certificates and keys belong under ignored `data/tls/`. `pnpm lan:smoke` uses OpenSSL to create an ephemeral test certificate and verifies the HTTPS API and hostname using trust scoped to its test client. It does not prove iPhone trust or LAN reachability.
 
