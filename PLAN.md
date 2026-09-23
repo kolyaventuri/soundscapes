@@ -1,0 +1,147 @@
+# v0.1 implementation plan
+
+[SPEC.md](SPEC.md) is the product specification. This file tracks delivery; checked boxes mean completed work with evidence, not intended behavior. Keep implementation, automated verification, listening checks, and physical iPhone acceptance separate. Update the relevant checklist and evidence as each small Conventional Commit lands.
+
+## Scope and decisions
+
+- Adopt the spec's recommended React + TypeScript + Vite client, Node.js + TypeScript + Fastify server, and pnpm workspace with a shared contracts package.
+- Use XO, Vitest, strict TypeScript, SQLite metadata, filesystem audio storage, and FFmpeg for audio processing. Select the SQLite driver when persistence is implemented.
+- Run natively first. Docker/OrbStack is available if a concrete runtime need arises; model runtimes and GPU access must be evaluated on the actual host before selecting a worker deployment.
+- Prefer native Safari HLS through an HTML audio element. Keep the UI and API on one origin. Make Media Session controls part of early transport validation.
+- Freeze simulated time while idle. Keep event timing in software, validate model proposals, and keep ambience independent of inference.
+- Keep AI behind replaceable local adapters. Do not select/download models or build AI integration before the transport/lifecycle gate passes.
+- No accounts, cloud AI, WAN deployment, synchronized multiplayer, native mobile app, microphone input, music generation, or vector database in v0.1 (spec §3).
+
+## Phase 0 — Development foundation
+
+Spec: §4, §41–45, §49–51.
+
+- [ ] Create `apps/web`, `apps/server`, and `packages/shared` as a pnpm workspace; commit a lockfile.
+- [ ] Add strict TypeScript, XO, Vitest, and root development/build/check commands.
+- [ ] Add a React starter screen and manifest foundation with honest availability states; do not present unimplemented scene creation as working.
+- [ ] Add a Fastify health endpoint and shared runtime-validated API contract.
+- [ ] Support same-origin API requests through the Vite development proxy and serve the built client from Fastify.
+- [ ] Validate server configuration, shut down cleanly, and ignore local data, model weights, secrets, and generated outputs.
+- [ ] Document setup, commands, repository boundaries, and current limitations; update `AGENTS.md` for the chosen stack.
+- [ ] Run lint, type checks, tests, build, and development/production smoke checks; inspect the actual browser screen.
+
+Exit: a fresh checkout can run `pnpm install` and `pnpm dev`, and the browser can reach the API. This is scaffolding, not an audio milestone.
+
+## Phase 1 — Static HLS and minimal session control
+
+Spec: §7, §22–26, §30, §35, §39–41, milestone 1 in §46.
+
+- [ ] Repair/verify local FFmpeg and ffprobe, including AAC encoding and HLS output. Record versions and reproducible setup.
+- [ ] Add one known, licensed local WAV fixture or a documented fixture-import command; keep large audio out of Git.
+- [ ] Define validated session requests/responses and the `initializing`, `active`, `idle`, `stopped`, `error` state machine. Start with an in-memory session repository.
+- [ ] Define initialization versus listener demand: bound initial preparation, enable ongoing work only for listeners, and never leave abandoned initialization generating indefinitely.
+- [ ] Implement session status, play, pause, and stop routes with idempotent controls and invalid-transition handling. Use the fixture explicitly until scene generation exists.
+- [ ] Loop the fixture through managed FFmpeg subprocesses into AAC and a sliding live HLS playlist (start with 6-second segments).
+- [ ] Serve playlists/segments under validated session IDs; set content types and cache behavior, reject traversal, publish completed segments atomically, and clean up old segments/processes.
+- [ ] Add native `<audio>` playback with user-gesture start, loading/failure states, pause/resume/stop, and supported Media Session metadata/actions.
+- [ ] Implement explicit playback signals and an independent stream-consumption watchdog (90 seconds by default). Status polling alone must not count as listening.
+- [ ] Cover prefetch/stale requests after explicit pause, absent clients, reconnects, and multiple listeners without claiming synchronized playback.
+- [ ] Verify pause or loss of consumption stops rendering and queued work; stop also cleans up session resources. Resume re-buffers without requiring browser JavaScript to stay alive.
+- [ ] Verify LAN access; document the temporary hostname/IP and port. Plan `soundscape.local` discovery and port routing rather than assuming mDNS creates itself.
+
+**Required physical-device gate before AI work:**
+
+- [ ] On an iPhone, start native HLS, lock the screen, and confirm uninterrupted playback through Bluetooth sleep buds.
+- [ ] Confirm Control Center/lock-screen controls, explicit pause → server idle, and resume → playback.
+- [ ] Terminate/disconnect the client without sending pause; confirm watchdog → idle and no continuing rendering.
+- [ ] Record iPhone/iOS/browser/audio-device details, test duration, observed behavior, and server evidence below.
+
+## Phase 2 — Persistent procedural ambience
+
+Spec: §6, §10–11, §15–16, §20–21, §26–33, §38, milestones 2–3 in §46.
+
+- [ ] Add SQLite migrations and repositories for sessions, assets, and events; persist timeline/scene state and usage metadata needed to resume.
+- [ ] Create managed `data/assets/{ambience,events}` and `data/sessions/<id>/{hls,temp}` storage; define restart recovery, missing-file handling, and cleanup ownership.
+- [ ] Register four compatible local ambience fixtures with measured duration, sample rate, channels, and source metadata.
+- [ ] Normalize/analyze every asset before it is playable; enforce peak/transient limits and prevent clipping in the final mix.
+- [ ] Select beds with weighted randomness, recent-use bias, and no immediate repeat; handle an empty pool and degraded single-bed fallback explicitly.
+- [ ] Build a continuous 44.1 kHz stereo timeline with 10–20 second crossfades and similar loudness across beds. Use FFmpeg argument arrays, never shell interpolation.
+- [ ] Track playback position separately from rendering position; maintain 45-second minimum, 90-second target, and 180-second maximum future audio.
+- [ ] Define a commit boundary for encoded audio so future events cannot modify already-published segments; prioritize ambience over optional work.
+- [ ] Bound PCM memory, HLS/temp disk usage, controller concurrency, and retained history. Preserve segments long enough for lagging clients before cleanup.
+- [ ] Implement a 1:1 simulation clock that freezes while idle and resumes from stored scene state; recover safely after a normal restart.
+- [ ] Expose debug session state: buffer, queue, next opportunity, active bed, model state, and last stream-consumption age. Keep routine per-segment logging off.
+- [ ] Unit-test selection/state/clock/watchdog behavior using injected time and randomness. Integration-test HLS continuity, pause/resume, cleanup, and FFmpeg failure.
+- [ ] Listen through crossfades and run several hours of fixture playback with bounded memory/disk and no gaps; repeat the iPhone transport gate.
+
+Exit: an unattended, persistent ambient stream works without any AI dependency.
+
+## Phase 3 — Event scheduling and local LLM planning
+
+Spec: §8, §12–15, §19, §28–29, §34–35, §43–45, milestone 4 in §46. Depends on the physical-device gate and stable ambience.
+
+- [ ] Select and document a local LLM runtime/model after measuring host compatibility, resource use, licensing, setup, and latency; define adapter timeouts/cancellation.
+- [ ] Parse arbitrary prompts into a schema-validated scene; preserve the original prompt and expose clear initialization errors.
+- [ ] Implement configurable irregular opportunity delays: 20% at 1–2 min, 45% at 2–5 min, 25% at 5–10 min, 10% at 10–15 min, plus intentional skipped opportunities.
+- [ ] Give the planner scene/weather/clock/elapsed time/ambient state/restrictions/library summary and recent history. Validate at most one proposal or an encouraged null result.
+- [ ] Enforce sleep-mode restrictions independently of the LLM, including speech, startling transients, close alarms/sirens, and abrupt weather changes; bound duration/prominence.
+- [ ] Persist/filter approximately 30–60 minutes or 20–30 recent events to discourage repetition; record events when scheduled for playback, not merely proposed.
+- [ ] Use manually supplied event WAVs first; apply gain, fades, and restrained panning/filtering into mutable future audio.
+- [ ] Keep planning off the buffer-refill path. Drop invalid, failed, or late proposals and continue ambience; do not shift the opportunity clock based on LLM preference.
+- [ ] Test delay distribution/bounds, history filtering, malformed/null/rejected proposals, timeouts, late results, and continued playback during model failure.
+- [ ] Listen for contextual plausibility, sparse activity, and lack of perceptible periodicity.
+
+## Phase 4 — Local sound generation and initial scene creation
+
+Spec: §4, §9, §16–21, §27–29, §34–35, milestone 5 in §46.
+
+- [ ] Evaluate Stable Audio 3 Small-SFX or an equivalent local model: availability/license, hardware/memory requirements, supported duration/sample rate, and measured generation speed. Document the chosen adapter and fallback decision.
+- [ ] Resolve how the selected model supplies four compatible 60–120 second beds; do not assume a short-SFX model can generate 90-second ambience directly.
+- [ ] Define `SoundGenerator` requests/results and a local worker protocol with readiness, timeout, cancellation, and validated managed output paths; keep Python details outside the controller.
+- [ ] Generate four contextual ambience beds, analyze/normalize/register them, and build sufficient future audio before playback becomes ready.
+- [ ] Implement a bounded generation queue with one sound job at a time, ambience priority, per-session ownership, and event deadlines.
+- [ ] Search existing assets before generation; generate only when no acceptable match exists. Include both scene context and the desired event in prompts.
+- [ ] Quarantine incomplete/unprocessed outputs; validate file size, decodeability, duration, channels, sample rate, peaks, and transient limits before registration/mixing.
+- [ ] Ignore/drop stale results after idle/stop or missed deadlines; cancel queued/in-flight work where supported and verify no new inference is dispatched while idle.
+- [ ] Retain loaded models briefly if useful; make the optional 30-minute model-unload policy configurable without losing session/asset data.
+- [ ] Prove model installation is the only network-dependent step and runtime uses no cloud AI APIs; test with external networking unavailable.
+- [ ] Verify failed generation, invalid audio, worker crash, and slow inference do not interrupt established ambience; distinguish startup failure when no usable beds exist.
+
+## Phase 5 — Reuse and complete playback UX
+
+Spec: §16–18, §23–24, §30, §39–44, milestone 6 in §46.
+
+- [ ] Implement tag/context matching, recency, usage-count/rarity weighting, small randomness, and a configurable reuse threshold; exclude incompatible scenes and unsafe assets.
+- [ ] Update usage metadata only for selected/scheduled assets and add restrained gain/pan/EQ/fade/crop variations without aggressive pitch artifacts.
+- [ ] Test scoring, reuse-versus-generate decisions, recently used exclusions, missing assets, and mixer parameter bounds.
+- [ ] Complete prompt/sleep-mode creation, progress, scene/weather/simulation clock, native player controls, and optional recent-event display in the sparse mobile UI.
+- [ ] Add asset/debug views or API routes for diagnosis; keep detailed diagnostics out of the main sleep experience. Saved scene browsing is optional.
+- [ ] Finish install icons, manifest, and app-shell behavior. Decide/document trusted local HTTPS for service workers: plain LAN HTTP is not a secure context. Never cache HLS playlists/segments or activity-sensitive APIs in a service worker.
+- [ ] Configure/document mDNS and the final LAN entry point, including any port or local reverse proxy. Verify on the actual iPhone rather than inferring reachability from localhost.
+- [ ] Show repeat sessions reuse appropriate assets and reduce generation frequency; listen for objectionable repetitions and volume variance.
+
+## Phase 6 — Overnight acceptance and v0.1 handoff
+
+Spec: §2, §21, §25–29, §41, §45, §47, §51.
+
+- [ ] Complete automated coverage of session creation, bed registration, HLS output, pause/resume/stop, watchdog, asset reuse, null proposals, and model/FFmpeg failures.
+- [ ] Exercise request/model schemas, ID/path traversal rejection, bounded input/output sizes, subprocess argument safety, and trusted-LAN-only configuration.
+- [ ] Run the Central Park 1932 example end to end using real local models and four generated beds; record readiness time and steady-state inference/resource use.
+- [ ] Verify irregular subtle events, valid null decisions, generated/reused assets, future mixing, and ambience continuing through event failures.
+- [ ] Complete at least one **eight-hour physical iPhone run** with locked screen and Bluetooth sleep buds; record stalls, listening observations, buffer levels, memory/disk/CPU/GPU trends, and retained segment counts.
+- [ ] Verify lock-screen pause and stream-loss idle separately, no unnecessary inference/rendering while idle, and resume without regenerating the world.
+- [ ] Inspect peak/transient analysis and listen to representative generated output/transitions. Do not equate a numeric limiter check with perceptual comfort.
+- [ ] Test fresh setup from the README, including local model installation, FFmpeg, LAN hostname, PWA requirements, normal shutdown, and restart recovery.
+- [ ] Close temporary browser sessions and processes used for verification; record remaining limitations. Mark v0.1 complete only when all mandatory gates pass.
+
+## Optional after the required path
+
+- [ ] Slow scene mutations over 10–30 minutes with smooth transitions (§36).
+- [ ] Gradual replacement of the initial ambience pool (§37).
+- [ ] Saved-scene browsing (§30), richer loudness measurements, or additional presentation effects if required by listening results.
+
+These do not block v0.1 and should not displace transport reliability, resource control, or sleep suitability.
+
+## Evidence and current blockers
+
+| Date | Area | Evidence / result | Boundary / next step |
+| --- | --- | --- | --- |
+| 2026-09-23 | Initial environment | Shell Node `v24.12.0`, pnpm `10.29.3`; repository initially contains only spec and guidance. | Keep the shell-selected Node; advise a current Node 24 LTS patch upgrade. |
+| 2026-09-23 | FFmpeg prerequisite | Homebrew FFmpeg fails to load `/opt/homebrew/opt/x265/lib/libx265.216.dylib`. | Repair/verify before Phase 1; no audio acceptance claimed. |
+
+For each acceptance run, append commands/build revision, device/runtime versions, duration, results, and unresolved failures. Do not mark physical-device or overnight checks complete from unit tests, generated playlists, or a desktop preview.
