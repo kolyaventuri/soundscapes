@@ -1607,6 +1607,10 @@ Playback screen:
 
 Keep the UI intentionally sparse.
 
+Initial preparation should provide live, understandable progress and an approximate time until audio is playable, rather than only changing status text. Show the current stage, completed work and within-stage progress when available. Estimates should use measured model/backend timings and account for queueing, cold loading, asset reuse, generation, validation and playback buffering. Present a range and update it as evidence improves; use an indeterminate/estimating state when a credible estimate is unavailable. Do not fabricate progress or indicate completion before playback is ready.
+
+Keep this feedback compact on mobile, survive reconnects using server state, and clearly distinguish slow work, failure, cancellation and readiness. Progress polling must not renew listener activity. This is planned Phase 5 UX polish, not a prerequisite for continuing current development.
+
 ---
 
 # 40. Local Network Access

@@ -3,6 +3,7 @@
 - Follow `SPEC.md` for product requirements and update `PLAN.md` checklists with evidence as work lands. Keep physical iPhone and overnight acceptance separate from automated checks.
 - Phase 3 and later development may proceed while long-run testing is pending; v0.1 completion still requires measured multi-hour playback and the final eight-hour physical-device acceptance run.
 - Product focus: recognizable environmental/diegetic scenes, including requested music and crowd murmur. Sleep is opt-in; do not inject blanket music/voice bans or reduce scenes to noise textures. Preserve listening acceptance separately from numeric validation.
+- Phase 5 preparation UX should show live server progress and measured, approximate time to playable audio; use an indeterminate state when uncertain, never a fabricated countdown. Progress polling must not renew listener activity.
 - Stack: Node.js 24 LTS and TypeScript; pnpm workspace with React/Vite in `apps/web`, Fastify in `apps/server`, and browser-safe schemas/types in `packages/shared`.
 - Keep inference local behind replaceable adapters. Prove HLS playback and pause/watchdog lifecycle before AI integration. Use FFmpeg for DSP and SQLite/filesystem storage when those phases are implemented.
 - Run `pnpm check` before committing code. Never commit local data, generated audio, model weights, or secrets.
