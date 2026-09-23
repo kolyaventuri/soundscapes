@@ -1,6 +1,7 @@
 import {spawn} from 'node:child_process';
 import {mkdir, readFile} from 'node:fs/promises';
 import path from 'node:path';
+import {type Writable} from 'node:stream';
 import {setTimeout as delay} from 'node:timers/promises';
 
 export type Renderer = {
@@ -10,6 +11,7 @@ export type Renderer = {
 	readonly running: boolean;
 	ready: () => Promise<void>;
 	stop: () => Promise<void>;
+	diagnostics?: () => {renderedUntilMs: number; committedUntilMs: number; queuedChunks: number; minimumBufferMs: number; targetBufferMs: number; maximumBufferMs: number};
 };
 
 export type RendererOptions = {
@@ -18,6 +20,7 @@ export type RendererOptions = {
 	fixturePath: string;
 	ffmpegPath: string;
 	onFailure: (error: Error) => void;
+	pcm?: {start: (input: Writable) => void; stop: () => Promise<void>};
 };
 
 export type RendererFactory = (options: RendererOptions) => Promise<Renderer>;
@@ -35,14 +38,9 @@ export const startRenderer: RendererFactory = async options => {
 		'-loglevel',
 		'error',
 		'-nostdin',
-		'-stream_loop',
-		'-1',
-		'-readrate',
-		'1',
-		'-readrate_initial_burst',
-		'20',
-		'-i',
-		options.fixturePath,
+		...(options.pcm
+			? ['-readrate', '1', '-readrate_initial_burst', '20', '-f', 's16le', '-ar', '44100', '-ac', '2', '-i', 'pipe:0']
+			: ['-stream_loop', '-1', '-readrate', '1', '-readrate_initial_burst', '20', '-i', options.fixturePath]),
 		'-map',
 		'0:a:0',
 		'-vn',
@@ -72,7 +70,7 @@ export const startRenderer: RendererFactory = async options => {
 		'-hls_segment_filename',
 		path.join(options.directory, 'segment-%018d.ts'),
 		path.join(options.directory, 'stream.m3u8'),
-	], {stdio: ['ignore', 'ignore', 'pipe']});
+	], {stdio: ['pipe', 'ignore', 'pipe']});
 	let stopping = false;
 	let ended = false;
 	let failure: Error | undefined;
@@ -95,6 +93,9 @@ export const startRenderer: RendererFactory = async options => {
 			resolve();
 		});
 	});
+
+	child.stdin.on('error', () => {/* Child close reports the failure. */});
+	options.pcm?.start(child.stdin);
 
 	return {
 		directory: options.directory,
@@ -131,7 +132,9 @@ export const startRenderer: RendererFactory = async options => {
 			throw new Error('FFmpeg did not publish three segments within 20 seconds');
 		},
 		async stop() {
+			const pcmStopped = options.pcm?.stop();
 			if (ended) {
+				await pcmStopped;
 				return;
 			}
 
@@ -140,6 +143,7 @@ export const startRenderer: RendererFactory = async options => {
 			const timer = setTimeout(() => child.kill('SIGKILL'), 2000);
 			try {
 				await closed;
+				await pcmStopped;
 			} finally {
 				clearTimeout(timer);
 			}

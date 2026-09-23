@@ -11,6 +11,7 @@ import {
 import {buildApp} from '../app.js';
 import {type Renderer, type RendererOptions} from '../audio/hls.js';
 import {readConfig} from '../config.js';
+import {Store} from '../persistence/store.js';
 import {SessionManager} from './manager.js';
 
 const cleanup: Array<() => Promise<void>> = [];
@@ -44,14 +45,14 @@ async function setup() {
 		return renderer;
 	});
 	const manager = new SessionManager({
-		config, rendererFactory: factory, now: () => now, automaticWatchdog: false,
+		config, store: new Store(path.join(directory, 'test.sqlite')), rendererFactory: factory, now: () => now, automaticWatchdog: false,
 	});
 	cleanup.push(async () => {
 		await manager.close();
 		await rm(directory, {recursive: true, force: true});
 	});
 	return {
-		manager, config, factory, renderers, advance(ms: number) {
+		manager, config, factory, renderers, now: () => now, advance(ms: number) {
 			now += ms;
 		},
 	};
@@ -200,5 +201,57 @@ it('validates HTTP contracts and IDs, serves uncached HLS, and rejects traversal
 		await expect(app.inject({method: 'POST', url: `/api/sessions/${session.id}/play`, payload: {listenerId: 'invalid'}})).resolves.toMatchObject({statusCode: 400});
 	} finally {
 		await app.close();
+	}
+});
+
+it('recovers session identity, listener controls, elapsed time, and HLS after normal restart', async () => {
+	const {manager, config, factory, advance, now} = await setup();
+	const {session, listenerId} = manager.create();
+	await manager.play(session.id, listenerId);
+	advance(25_000);
+	await manager.close();
+	advance(3_600_000);
+	const restored = new SessionManager({
+		config, store: new Store(path.join(config.dataDirectory, 'test.sqlite')), rendererFactory: factory, now, automaticWatchdog: false,
+	});
+	try {
+		await restored.initialize();
+		expect(restored.get(session.id)).toMatchObject({
+			status: 'idle', ready: true, activeElapsedMs: 25_000, rendering: false,
+		});
+		expect(restored.debug(session.id).listeners[0]?.state).toBe('expired');
+		await restored.play(session.id, listenerId);
+		advance(10_000);
+		expect(restored.get(session.id).activeElapsedMs).toBe(35_000);
+		await restored.pause(session.id, listenerId);
+		advance(10_000);
+		expect(restored.get(session.id).activeElapsedMs).toBe(35_000);
+	} finally {
+		await restored.close();
+	}
+});
+
+it('cleans crash leftovers only in owned UUID session folders and rebuilds missing playlists', async () => {
+	const {manager, config, factory, now} = await setup();
+	const {session, listenerId} = manager.create();
+	await manager.playlist(session.id, listenerId);
+	await manager.close();
+	const root = path.join(config.dataDirectory, 'sessions');
+	const orphan = path.join(root, randomUUID());
+	const unrelated = path.join(root, 'keep-me');
+	await mkdir(orphan, {recursive: true});
+	await mkdir(unrelated);
+	await rm(path.join(root, session.id, 'hls'), {recursive: true});
+	const restored = new SessionManager({
+		config, store: new Store(path.join(config.dataDirectory, 'test.sqlite')), rendererFactory: factory, now, automaticWatchdog: false,
+	});
+	try {
+		await restored.initialize();
+		await restored.playlist(session.id, listenerId);
+		expect(restored.get(session.id)).toMatchObject({ready: true, status: 'idle'});
+		expect(await readdir(root)).toContain('keep-me');
+		expect(await readdir(root)).not.toContain(path.basename(orphan));
+	} finally {
+		await restored.close();
 	}
 });

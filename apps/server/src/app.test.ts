@@ -8,7 +8,7 @@ import {readConfig} from './config.js';
 
 it('serves the shared health contract alongside the built client without hiding API errors', async () => {
 	const webRoot = await mkdtemp(path.join(tmpdir(), 'soundscapes-web-'));
-	const app = await buildApp({webRoot});
+	const app = await buildApp({webRoot, config: {...readConfig({}), dataDirectory: webRoot}});
 
 	try {
 		await writeFile(path.join(webRoot, 'index.html'), '<h1>Soundscapes</h1>');

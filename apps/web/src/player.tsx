@@ -20,7 +20,7 @@ export function Player({connection, onSession, onError}: PlayerProps) {
 	const {
 		streamUrl,
 		listenerId,
-		session: {id},
+		session: {id, title},
 	} = connection;
 
 	useEffect(() => {
@@ -150,9 +150,9 @@ export function Player({connection, onSession, onError}: PlayerProps) {
 
 		if ('mediaSession' in navigator) {
 			navigator.mediaSession.metadata = new MediaMetadata({
-				title: 'Quiet pink noise',
+				title,
 				artist: 'Soundscapes',
-				album: 'Local playback test',
+				album: 'Local soundscape',
 			});
 			for (const [action, handler] of [
 				[
@@ -219,7 +219,7 @@ export function Player({connection, onSession, onError}: PlayerProps) {
 				navigator.mediaSession.playbackState = 'none';
 			}
 		};
-	}, [id, listenerId, streamUrl, onError, onSession]);
+	}, [id, title, listenerId, streamUrl, onError, onSession]);
 
 	return (
 		<div className="player">
@@ -227,7 +227,7 @@ export function Player({connection, onSession, onError}: PlayerProps) {
 				ref={audioRef}
 				controls
 				preload="none"
-				aria-label="Quiet pink noise player"
+				aria-label={`${title} player`}
 			/>
 			<p className="playback-state" role="status">
 				{playback}

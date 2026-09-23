@@ -57,12 +57,41 @@ async function createOne(index: number, variant: {title: string; cutoff: number;
 	const raw = `${target}.raw.wav`;
 	const temporary = `${target}.tmp.wav`;
 	try {
+		const source = `anoisesrc=color=pink:amplitude=0.2:sample_rate=44100:duration=90:seed=${variant.seed}`;
 		await runAudioCommand(config.ffmpegPath, [
-			'-v', 'error', '-nostdin', '-y', '-f', 'lavfi', '-i', `anoisesrc=color=pink:amplitude=0.2:sample_rate=44100:duration=90:seed=${variant.seed}`, '-af', `lowpass=f=${variant.cutoff}`, '-ac', '2', '-c:a', 'pcm_s16le', raw,
+			'-v',
+			'error',
+			'-nostdin',
+			'-y',
+			'-f',
+			'lavfi',
+			'-i',
+			source,
+			'-af',
+			`lowpass=f=${variant.cutoff}`,
+			'-ac',
+			'2',
+			'-c:a',
+			'pcm_s16le',
+			raw,
 		]);
 		const measured = await measure(raw, config);
 		await runAudioCommand(config.ffmpegPath, [
-			'-v', 'error', '-nostdin', '-y', '-i', raw, '-af', `volume=${-36 - measured.meanDb}dB,alimiter=limit=0.125:level=false:attack=5:release=50:latency=true`, '-ar', '44100', '-ac', '2', '-c:a', 'pcm_s16le', temporary,
+			'-v',
+			'error',
+			'-nostdin',
+			'-y',
+			'-i',
+			raw,
+			'-af',
+			`volume=${-36 - measured.meanDb}dB,alimiter=limit=0.125:level=false:attack=5:release=50:latency=true`,
+			'-ar',
+			'44100',
+			'-ac',
+			'2',
+			'-c:a',
+			'pcm_s16le',
+			temporary,
 		]);
 		const normalized = await measure(temporary, config);
 		if (Math.abs(normalized.meanDb + 36) > 1 || normalized.peakDb - normalized.meanDb > 20) {

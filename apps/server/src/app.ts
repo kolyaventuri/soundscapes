@@ -2,6 +2,7 @@ import fastifyStatic from '@fastify/static';
 import {healthResponseJsonSchema, type HealthResponse} from '@soundscapes/shared';
 import fastify, {LogController, type FastifyServerOptions} from 'fastify';
 import {readConfig, type AppConfig} from './config.js';
+import {claimServer, openStore} from './persistence/open.js';
 import {SessionManager} from './sessions/manager.js';
 import {registerSessionRoutes} from './sessions/routes.js';
 
@@ -16,13 +17,32 @@ export async function buildApp({logger = false, webRoot, config = readConfig(), 
 	const app = fastify({
 		logger, bodyLimit: 16_384, logController: new LogController({disableRequestLogging: true}), ajv: {customOptions: {removeAdditional: false, coerceTypes: false}},
 	});
+	const release = sessions ? undefined : await claimServer(config.dataDirectory);
+	const store = sessions ? undefined : await openStore(config.dataDirectory);
 	const manager = sessions ?? new SessionManager({
+		...(store ? {store} : {}),
 		config,
 		onEvent(event, sessionId, detail) {
 			app.log.info({sessionId, event, detail}, 'Session lifecycle');
 		},
 	});
-	app.addHook('onClose', async () => manager.close());
+	try {
+		if (!sessions) {
+			await manager.initialize();
+		}
+	} catch (error) {
+		await manager.close();
+		await release?.();
+		throw error;
+	}
+
+	app.addHook('onClose', async () => {
+		try {
+			await manager.close();
+		} finally {
+			await release?.();
+		}
+	});
 	app.addHook('onSend', async (request, reply, payload) => {
 		if (request.url.startsWith('/api/')) {
 			void reply.header('Cache-Control', 'no-store');
@@ -37,7 +57,7 @@ export async function buildApp({logger = false, webRoot, config = readConfig(), 
 	}, async (): Promise<HealthResponse> => ({
 		status: 'ok',
 		service: 'soundscapes',
-		stage: 'static-streaming',
+		stage: 'procedural-ambience',
 	}));
 	registerSessionRoutes(app, manager);
 

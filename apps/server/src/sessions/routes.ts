@@ -16,9 +16,9 @@ type SessionParameters = {id: string};
 type ListenerBody = {listenerId: string};
 
 export function registerSessionRoutes(app: FastifyInstance, manager: SessionManager) {
-	app.post('/api/sessions', {
+	app.post<{Body: {mode: 'fixture' | 'ambience'}}>('/api/sessions', {
 		schema: {body: jsonSchema(createSessionSchema), response: {202: listenerResponse}},
-	}, async (request, reply) => reply.code(202).send(manager.create()));
+	}, async (request, reply) => reply.code(202).send(manager.create(request.body.mode)));
 
 	app.get<{Params: SessionParameters}>('/api/sessions/:id', {
 		schema: {params: parametersSchema, response: {200: sessionResponse}},

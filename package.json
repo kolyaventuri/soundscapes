@@ -4,7 +4,10 @@
   "private": true,
   "type": "module",
   "packageManager": "pnpm@10.29.3",
-  "engines": { "node": ">=24.12.0 <25", "pnpm": ">=10 <11" },
+  "engines": {
+    "node": ">=24.12.0 <25",
+    "pnpm": ">=10 <11"
+  },
   "scripts": {
     "fixture:create": "pnpm --filter @soundscapes/server fixture:create",
     "audio:smoke": "pnpm --filter @soundscapes/server audio:smoke",
@@ -17,7 +20,10 @@
     "typecheck": "pnpm --filter @soundscapes/shared build && pnpm -r typecheck && tsc --noEmit",
     "test": "pnpm --filter @soundscapes/shared build && vitest run",
     "test:watch": "pnpm --filter @soundscapes/shared build && vitest",
-    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build"
+    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build",
+    "ambience:create": "pnpm --filter @soundscapes/server ambience:create",
+    "audio:phase2": "pnpm --filter @soundscapes/server audio:phase2",
+    "audio:mixer": "pnpm --filter @soundscapes/server audio:mixer"
   },
   "devDependencies": {
     "@types/node": "^24.13.6",

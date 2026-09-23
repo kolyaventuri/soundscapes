@@ -46,6 +46,7 @@ export async function renderChunk(ffmpeg: string, args: string[], signal: AbortS
 		});
 	} catch (error) {
 		const failure = error as Error & {code?: string | number; signal?: string; killed?: boolean; stderr?: string};
-		throw new Error(`PCM mixer failed after ${Date.now() - started}ms: code=${String(failure.code)} signal=${String(failure.signal)} killed=${String(failure.killed)} ${failure.stderr ?? failure.message}`, {cause: error});
+		const detail = `code=${String(failure.code)} signal=${String(failure.signal)} killed=${String(failure.killed)}`;
+		throw new Error(`PCM mixer failed after ${Date.now() - started}ms: ${detail} ${failure.stderr ?? failure.message}`, {cause: error});
 	}
 }

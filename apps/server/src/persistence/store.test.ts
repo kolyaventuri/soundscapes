@@ -14,7 +14,8 @@ it('migrates once, persists sessions and assets, and bounds event history with o
 		store.saveSession('session', {elapsedMs: 42});
 		const id = randomUUID();
 		store.putAsset({
-			id, kind: 'ambience', title: 'Test', file: 'assets/ambience/test.wav', durationMs: 90_000, sampleRate: 44_100, channels: 2, peakDb: -20, meanDb: -36, source: 'Local', usageCount: 0, lastUsedAt: null,
+			id, kind: 'ambience', title: 'Test', file: 'assets/ambience/test.wav', durationMs: 90_000,
+			sampleRate: 44_100, channels: 2, peakDb: -20, meanDb: -36, source: 'Local', usageCount: 0, lastUsedAt: null,
 		});
 		store.useAsset(id, '2026-09-23T00:00:00Z');
 		for (let index = 0; index < 100; index++) {

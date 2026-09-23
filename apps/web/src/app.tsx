@@ -162,7 +162,7 @@ export function App() {
 						)
 					: await request('/api/sessions', listenerSessionSchema, {
 							method: 'POST',
-							body: JSON.stringify({mode: 'fixture'}),
+							body: JSON.stringify({mode: 'ambience'}),
 						});
 			setConnection(result);
 			globalThis.history.replaceState(
@@ -236,12 +236,12 @@ export function App() {
 					)}
 				</h1>
 				<p className="introduction">
-					Soft pink noise, streaming from your local server.
+					Soft ambient air, streaming from your local server.
 				</p>
 				<div className="notice">
 					<p className="notice-title">First, a quiet playback test.</p>
 					<p>
-						This stream loops one locally synthesized recording. Scene
+						Four local ambience beds blend slowly into one another. Scene
 						descriptions and AI ambience come later.
 					</p>
 				</div>
