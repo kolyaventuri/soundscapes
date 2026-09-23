@@ -55,7 +55,7 @@ Each browser gets its own listener ID. Sharing the page URL lets another browser
 
 An explicit pause stops rendering when nobody else is listening. Status polling, playlist polling, HEAD requests, old-run segments, and requests after an explicit pause do not extend listener activity. Successful current-run segment GETs extend the watchdog. A timed-out listener can reactivate through a playlist request without foreground JavaScript; an explicitly paused listener requires Play. Active elapsed time freezes while idle.
 
-The client prefers native HLS and includes HLS.js for browsers requiring Media Source Extensions. Media Session metadata and play/pause/stop handlers are installed where supported. The user has confirmed loading, streaming, continued locked-screen playback, and “Quiet pink noise” / “Soundscapes” lock-screen metadata on a physical iPhone 15. The user also confirms Bluetooth sleep-bud playback while locked, lock-screen pause with server idle, and listener expiry 90 seconds after disabling Wi-Fi. Resume/reconnect and post-expiry producer shutdown still need device evidence.
+The client prefers native HLS and includes HLS.js for browsers requiring Media Source Extensions. Media Session metadata and play/pause/stop handlers are installed where supported. The user has confirmed loading, streaming, continued locked-screen playback, and “Quiet pink noise” / “Soundscapes” lock-screen metadata on a physical iPhone 15. The user also confirms Bluetooth sleep-bud playback while locked, lock-screen pause with server idle, and listener expiry 90 seconds after disabling Wi-Fi. A user-supplied debug response confirms post-expiry idle state, zero listeners, stopped rendering, and no producer PID. Resume/reconnect still need device evidence.
 
 Sessions are in memory and do not survive a server restart. Normal stop/shutdown removes owned session files; recovery and orphan cleanup after a hard crash belong to Phase 2. Preparation and resume are bounded to 20 seconds, with errors shown in the UI. This fixture establishes transport behavior; it is not a seamless multi-bed mixer or a test of generated sleep ambience.
 
@@ -85,7 +85,7 @@ Keep the Mac awake and connect the iPhone to the same trusted LAN. Start `pnpm d
 4. Disconnect the phone's network while playing, without pressing Pause. Wait at least 90 seconds after its last segment request; confirm idle and no producer. Restore the connection and observe recovery.
 5. Stop the session and confirm its directory under `data/sessions/` disappears. Stop the development processes with Ctrl-C when finished.
 
-Record iPhone model, iOS/browser version, Bluetooth device, duration, stalls, controls, and server evidence in `PLAN.md`. Loading, streaming, locked-screen Bluetooth playback, metadata, pause to idle, and 90-second listener expiry have passed on the user's iPhone 15; the remaining checks and missing run details are still open. Do not start AI integration until the full device gate passes; the eight-hour overnight gate is separate.
+Record iPhone model, iOS/browser version, Bluetooth device, duration, stalls, controls, and server evidence in `PLAN.md`. Loading, streaming, locked-screen Bluetooth playback, metadata, pause to idle, 90-second listener expiry, and post-expiry producer shutdown have passed on the user's iPhone 15; the remaining checks and missing run details are still open. Do not start AI integration until the full device gate passes; the eight-hour overnight gate is separate.
 
 ## Repository layout
 
