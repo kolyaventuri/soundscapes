@@ -13,3 +13,15 @@ createRoot(root).render(
 		<App />
 	</StrictMode>,
 );
+
+if (
+	import.meta.env.PROD &&
+	globalThis.isSecureContext &&
+	'serviceWorker' in navigator
+) {
+	try {
+		await navigator.serviceWorker.register('/sw.js');
+	} catch {
+		// Installation is optional; a failed shell cache must not block streaming.
+	}
+}

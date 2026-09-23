@@ -1,3 +1,4 @@
+import {readFile} from 'node:fs/promises';
 import fastifyStatic from '@fastify/static';
 import {healthResponseJsonSchema, type HealthResponse} from '@soundscapes/shared';
 import fastify, {LogController, type FastifyServerOptions} from 'fastify';
@@ -18,6 +19,7 @@ export async function buildApp({logger = false, webRoot, config = readConfig(), 
 	const diagnostics = new Diagnostics();
 	diagnostics.record('server-started');
 	const app = fastify({
+		...(config.tls ? {https: {cert: await readFile(config.tls.certificate), key: await readFile(config.tls.key)}} : {}),
 		logger, bodyLimit: 16_384, logController: new LogController({disableRequestLogging: true}), ajv: {customOptions: {removeAdditional: false, coerceTypes: false}},
 	});
 	const release = sessions ? undefined : await claimServer(config.dataDirectory);

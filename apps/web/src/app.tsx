@@ -8,6 +8,7 @@ import {useCallback, useEffect, useState} from 'react';
 import {request} from './api.js';
 import {Player} from './player.js';
 import {PreparationFeedback} from './preparation.js';
+import {InstallInfo} from './install.js';
 
 function restoreConnection() {
 	try {
@@ -386,7 +387,10 @@ export function App() {
 				) : null}
 				{error ? <a href="/">Start a new test stream</a> : null}
 			</section>
-			<footer>Generated locally. Shaped by your scene.</footer>
+			<footer>
+				<InstallInfo />
+				Generated locally. Shaped by your scene.
+			</footer>
 		</main>
 	);
 }

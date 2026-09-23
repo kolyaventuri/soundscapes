@@ -31,7 +31,8 @@
     "event:fixture": "pnpm --filter @soundscapes/server event:fixture",
     "sound:setup": "pnpm --filter @soundscapes/server sound:setup",
     "sound:smoke": "pnpm --filter @soundscapes/server sound:smoke",
-    "audio:phase4": "pnpm --filter @soundscapes/server audio:phase4"
+    "audio:phase4": "pnpm --filter @soundscapes/server audio:phase4",
+    "lan:smoke": "pnpm --filter @soundscapes/server lan:smoke"
   },
   "devDependencies": {
     "@types/node": "^24.13.6",

@@ -30,6 +30,28 @@ pnpm start
 
 Open [localhost:3000](http://localhost:3000). Fastify serves the built web client and API. Run the build again after source changes. `/api/health` reports process connectivity and `local-event-planning`; session status reports audio readiness.
 
+## Installable app and trusted LAN HTTPS
+
+Production builds include 192/512px install icons, an Apple touch icon, and a versioned offline app shell. The service worker handles only the build's static allowlist. It never intercepts API requests, HLS playlists/segments, WAVs, or other origins. Updates wait for existing app tabs to close rather than interrupting playback. Offline shell access does not provide offline audio or inference. Service workers require a [secure context](https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps/Tutorials/CycleTracker/Secure_connection): localhost works for desktop checks, but plain LAN HTTP does not.
+
+The chosen LAN entry point uses the Mac's existing Bonjour hostname, avoiding a system rename or privileged reverse proxy. On this host it is `Kolyas-MacBook-Air.local`. Normal development remains `http://Kolyas-MacBook-Air.local:5173`; production HTTP is port 3000. The HTTPS production entry point below is `https://Kolyas-MacBook-Air.local:3443`. Actual iPhone name resolution, installation and trusted HTTPS playback still need device acceptance.
+
+For one-time certificate setup, use [mkcert's documented local CA workflow](https://github.com/FiloSottile/mkcert). Installing a CA changes device trust; do these trust steps yourself. No system trust stores are modified by the app or its tests.
+
+```sh
+brew install mkcert
+mkcert -install
+mkdir -p data/tls
+SOUNDSCAPES_HOST="$(scutil --get LocalHostName).local"
+mkcert -cert-file data/tls/lan.pem -key-file data/tls/lan-key.pem "$SOUNDSCAPES_HOST" localhost 127.0.0.1 ::1
+pnpm build
+TLS_CERT_FILE=data/tls/lan.pem TLS_KEY_FILE=data/tls/lan-key.pem PORT=3443 pnpm start
+```
+
+On the iPhone, transfer **only `rootCA.pem`** from the directory printed by `mkcert -CAROOT`, install its profile, and enable certificate trust as described in the mkcert mobile-device instructions. Keep `rootCA-key.pem` and the server key private. Open the HTTPS address in Safari without certificate warnings, then use **Share → Add to Home Screen**. Keep Ollama running in its separate terminal. Do not set these TLS variables for the ordinary Vite development command; use this single-origin production launch for installation tests.
+
+`TLS_CERT_FILE` and `TLS_KEY_FILE` must be set together; relative paths resolve from the repository root. Certificates and keys belong under ignored `data/tls/`. `pnpm lan:smoke` uses OpenSSL to create an ephemeral test certificate and verifies the HTTPS API and hostname using trust scoped to its test client. It does not prove iPhone trust or LAN reachability.
+
 ## Preparation feedback
 
 Scene preparation now reports live stages, actual generation steps where supported, completed/reused recordings, and elapsed time. All four recordings must pass validation and HLS must be buffered before **Ready to play** appears. Playback still needs an explicit tap. Scene, weather and the simulation clock appear alongside the player.

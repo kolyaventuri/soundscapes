@@ -8,6 +8,8 @@ import {defaultDelayBuckets, delayBucketsSchema} from './planning/contracts.js';
 const environmentSchema = z.object({
 	HOST: z.string().trim().min(1).default('0.0.0.0'),
 	PORT: z.coerce.number().int().min(1).max(65_535).default(3000),
+	TLS_CERT_FILE: z.string().min(1).optional(),
+	TLS_KEY_FILE: z.string().min(1).optional(),
 	LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
 	DATA_DIR: z.string().min(1).default('data'),
 	FFMPEG_PATH: z.string().min(1).default('ffmpeg'),
@@ -40,6 +42,10 @@ export function loadEnvironment() {
 
 export function readConfig(environment: NodeJS.ProcessEnv = process.env) {
 	const parsed = environmentSchema.parse(environment);
+	if (Boolean(parsed.TLS_CERT_FILE) !== Boolean(parsed.TLS_KEY_FILE)) {
+		throw new Error('TLS_CERT_FILE and TLS_KEY_FILE must be configured together');
+	}
+
 	const ollamaUrl = new URL(parsed.OLLAMA_URL);
 	const local = ollamaUrl.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(ollamaUrl.hostname);
 	if (!local || ollamaUrl.username || ollamaUrl.password || ollamaUrl.pathname !== '/' || ollamaUrl.search || ollamaUrl.hash) {
@@ -49,6 +55,11 @@ export function readConfig(environment: NodeJS.ProcessEnv = process.env) {
 	const dataDirectory = path.resolve(repositoryRoot, parsed.DATA_DIR);
 	return {
 		host: parsed.HOST, port: parsed.PORT, logLevel: parsed.LOG_LEVEL,
+		tls: parsed.TLS_CERT_FILE && parsed.TLS_KEY_FILE
+			? {
+				certificate: path.resolve(repositoryRoot, parsed.TLS_CERT_FILE), key: path.resolve(repositoryRoot, parsed.TLS_KEY_FILE),
+			}
+			: undefined,
 		dataDirectory,
 		fixturePath: path.join(dataDirectory, 'assets/fixtures/pink-noise.wav'),
 		ffmpegPath: parsed.FFMPEG_PATH,

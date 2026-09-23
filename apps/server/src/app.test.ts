@@ -37,3 +37,9 @@ it('reads environment overrides without requiring a local env file', () => {
 		host: '127.0.0.1', port: 3010, logLevel: 'silent',
 	});
 });
+
+it('requires both TLS files and resolves them without loading credentials into client configuration', () => {
+	expect(() => readConfig({TLS_CERT_FILE: 'data/tls/cert.pem'})).toThrow('configured together');
+	expect(() => readConfig({TLS_KEY_FILE: 'data/tls/key.pem'})).toThrow('configured together');
+	expect(readConfig({TLS_CERT_FILE: '/tmp/cert.pem', TLS_KEY_FILE: '/tmp/key.pem'}).tls).toEqual({certificate: '/tmp/cert.pem', key: '/tmp/key.pem'});
+});
