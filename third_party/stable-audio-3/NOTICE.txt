@@ -1,0 +1,10 @@
+Powered by Stability AI
+
+This Stability AI Model is licensed under the Stability AI Community License, Copyright © Stability AI Ltd. All Rights Reserved.
+Gemma is provided under and subject to the Gemma Terms of Use found at ai.google.dev/gemma/terms.
+
+Model: https://huggingface.co/stabilityai/stable-audio-3-small-sfx
+Revision: ae12755283df9d62ca39a9b050a39a0b607b8c20
+Model weights are not distributed in this repository. Installation requires the user's own access acceptance.
+Runtime: https://github.com/Stability-AI/stable-audio-3 (MIT), pinned in workers/sound/requirements.in.
+Soundscapes does not modify the model weights; its worker resolves model paths locally and normalizes generated output.
