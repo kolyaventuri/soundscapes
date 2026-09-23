@@ -64,19 +64,21 @@ Physical test steps and the debug endpoint are documented in [README.md](README.
 
 Spec: §6, §10–11, §15–16, §20–21, §26–33, §38, milestones 2–3 in §46.
 
-- [ ] Add SQLite migrations and repositories for sessions, assets, and events; persist timeline/scene state and usage metadata needed to resume.
-- [ ] Create managed `data/assets/{ambience,events}` and `data/sessions/<id>/{hls,temp}` storage; define restart recovery, missing-file handling, and cleanup ownership.
-- [ ] Register four compatible local ambience fixtures with measured duration, sample rate, channels, and source metadata.
-- [ ] Normalize/analyze every asset before it is playable; enforce peak/transient limits and prevent clipping in the final mix.
-- [ ] Select beds with weighted randomness, recent-use bias, and no immediate repeat; handle an empty pool and degraded single-bed fallback explicitly.
-- [ ] Build a continuous 44.1 kHz stereo timeline with 10–20 second crossfades and similar loudness across beds. Use FFmpeg argument arrays, never shell interpolation.
-- [ ] Track playback position separately from rendering position; maintain 45-second minimum, 90-second target, and 180-second maximum future audio.
-- [ ] Define a commit boundary for encoded audio so future events cannot modify already-published segments; prioritize ambience over optional work.
-- [ ] Bound PCM memory, HLS/temp disk usage, controller concurrency, and retained history. Preserve segments long enough for lagging clients before cleanup.
-- [ ] Implement a 1:1 simulation clock that freezes while idle and resumes from stored scene state; recover safely after a normal restart.
-- [ ] Expose debug session state: buffer, queue, next opportunity, active bed, model state, and last stream-consumption age. Keep routine per-segment logging off.
-- [ ] Unit-test selection/state/clock/watchdog behavior using injected time and randomness. Integration-test HLS continuity, pause/resume, cleanup, and FFmpeg failure.
+- [x] Add SQLite migrations and repositories for sessions, assets, and events; persist timeline/scene state and usage metadata needed to resume.
+- [x] Create managed `data/assets/{ambience,events}` and `data/sessions/<id>/{hls,temp}` storage; define restart recovery, missing-file handling, and cleanup ownership.
+- [x] Register four compatible local ambience fixtures with measured duration, sample rate, channels, and source metadata.
+- [x] Normalize/analyze every asset before it is playable; enforce peak/transient limits and prevent clipping in the final mix.
+- [x] Select beds with weighted randomness, recent-use bias, and no immediate repeat; handle an empty pool and degraded single-bed fallback explicitly.
+- [x] Build a continuous 44.1 kHz stereo timeline with 10–20 second crossfades and similar loudness across beds. Use FFmpeg argument arrays, never shell interpolation.
+- [x] Track playback position separately from rendering position; maintain 45-second minimum, 90-second target, and 180-second maximum future audio.
+- [x] Define a commit boundary for encoded audio so future events cannot modify already-published segments; prioritize ambience over optional work.
+- [x] Bound PCM memory, HLS/temp disk usage, controller concurrency, and retained history. Preserve segments long enough for lagging clients before cleanup.
+- [x] Implement a 1:1 simulation clock that freezes while idle and resumes from stored scene state; recover safely after a normal restart.
+- [x] Expose debug session state: buffer, queue, next opportunity, active bed, model state, and last stream-consumption age. Keep routine per-segment logging off.
+- [x] Unit-test selection/state/clock/watchdog behavior using injected time and randomness. Integration-test HLS continuity, pause/resume, cleanup, and FFmpeg failure.
 - [ ] Listen through crossfades and run several hours of fixture playback with bounded memory/disk and no gaps; repeat the iPhone transport gate.
+
+Implementation and short-run checks are complete. Multi-hour resource stability, listening quality, and the repeat iPhone gate remain open.
 
 Exit: an unattended, persistent ambient stream works without any AI dependency.
 
@@ -119,7 +121,7 @@ Spec: §16–18, §23–24, §30, §39–44, milestone 6 in §46.
 - [ ] Update usage metadata only for selected/scheduled assets and add restrained gain/pan/EQ/fade/crop variations without aggressive pitch artifacts.
 - [ ] Test scoring, reuse-versus-generate decisions, recently used exclusions, missing assets, and mixer parameter bounds.
 - [ ] Complete prompt/sleep-mode creation, progress, scene/weather/simulation clock, native player controls, and optional recent-event display in the sparse mobile UI.
-- [ ] Add user-adjustable playback level compatible with iPhone/Bluetooth, with conservative defaults and output limiting. The user reports the pink-noise fixture is VERY quiet through sleep buds; defer implementation until a later playback/mixing phase.
+- [ ] Add user-adjustable playback level compatible with iPhone/Bluetooth, with conservative defaults and output limiting. The user reported the original pink-noise fixture was VERY quiet through sleep buds. A fixed +12 dB test boost is now applied; configurable gain remains deferred.
 - [ ] Add asset/debug views or API routes for diagnosis; keep detailed diagnostics out of the main sleep experience. Saved scene browsing is optional.
 - [ ] Finish install icons, manifest, and app-shell behavior. Decide/document trusted local HTTPS for service workers: plain LAN HTTP is not a secure context. Never cache HLS playlists/segments or activity-sensitive APIs in a service worker.
 - [ ] Configure/document mDNS and the final LAN entry point, including any port or local reverse proxy. Verify on the actual iPhone rather than inferring reachability from localhost.
@@ -166,5 +168,11 @@ These do not block v0.1 and should not displace transport reliability, resource 
 | 2026-09-23 | Physical Bluetooth and lifecycle — user report | On the iPhone 15, Bluetooth sleep-bud playback continues with the screen locked. Lock-screen pause works and the server reports idle. Turning off Wi-Fi makes the listener report expired after 90 seconds. The fixture is reported VERY quiet; adjustable playback level is tracked for later. | Resume/reconnect, post-expiry `rendering: false` and `producerPid: null`, iOS/browser version, bud model, and duration remain unreported. Current logs label the watchdog shutdown as a generic `idle` lifecycle event. |
 | 2026-09-23 | Physical disconnect watchdog — server evidence supplied by user | Session `a85571b9-e29c-4a98-aa0f-c79574cd45f6` reports `status: idle`, `rendering: false`, `listenerCount: 0`, `producerPid: null`, and one `expired` listener. Configured timeout is 90 seconds; consumption age at capture is 198.706 seconds. This confirms the producer is stopped after disconnect expiry. | Snapshot does not prove resume/reconnect or clock stability over time. `ready: true` retains prepared audio for the session; it does not indicate ongoing rendering. |
 | 2026-09-23 | Physical resume and reconnect — user report | User confirms lock-screen controls work as expected. After restoring connectivity, manually resuming audio succeeds and preserves the session ID. This completes the Phase 1 physical behavior checks. | Automatic playback recovery was not demonstrated. iOS/browser version, sleep-bud model, and duration remain unspecified; no overnight acceptance claimed. |
+| 2026-09-23 | Test volume `8acff96` | Increased the fixed encoder gain to 4× amplitude (about +12 dB) and retained an output limiter. Original fixture AAC/HLS and HTTP lifecycle checks pass. | Applies to new encoder runs; configurable gain remains deferred. New normalized ambience uses the same gain and limiter. |
+| 2026-09-23 | Phase 2 storage and assets `b3c92d0` | Node 24 built-in SQLite, versioned session/asset/event storage, managed server ownership, four locally synthesized 90-second stereo beds, level analysis/normalization, deterministic weighted selection, 15-second crossfades, and bounded history implemented. Beds measured −36 dBFS RMS and −22.9 to −21.0 dBFS peaks before output gain. | `node:sqlite` is experimental on the installed Node 24.12. No external recording or model is used. Placeholder scene clock starts at 01:00 UTC; prompt parsing remains Phase 3. |
+| 2026-09-23 | Phase 2 mixer and automated coverage `31131ec` | `pnpm check` passes with 24 Vitest tests. Tests cover an eight-hour simulated scheduler, selection/fallbacks, SQLite restart, frozen downtime, ownership, missing-playlist recovery, and prior lifecycle cases. `pnpm audio:mixer` confirms split chunks match a continuous reference byte-for-byte through a crossfade: 1.50 dB spread across one-second RMS windows, peak −21.0 dBFS. `pnpm audio:smoke` and the original fixture `pnpm audio:integration` pass. | Simulated schedule and numeric continuity do not establish multi-hour playback, perceptual comfort, or phone acceptance. |
+| 2026-09-23 | Phase 2 real stream | `AUDIO_TEST_SECONDS=240 pnpm audio:phase2` passes real HTTP AAC decoding across several bed transitions; all 457 samples stayed 89.7–119.6 seconds ahead, within the 45/90/180-second design bounds. PCM/HLS retention, pause, frozen output, resume, watchdog shutdown, HLS reconnect, normal restart, same session/listener IDs, and explicit-stop cleanup pass. | Watchdog accelerated to 30 seconds for the test. Earlier long runs exposed a mixer subprocess failure; one FFmpeg filter-graph worker and subprocess diagnostics were added before this successful run. Longer soak remains required. Playback cursor is a server active-time estimate, not exact per-device speaker position. |
+| 2026-09-23 | Phase 2 Chrome and restart | Production build in isolated data directory played native HLS beyond 128 seconds without media error. Pause returned idle. After server restart and page reload, the same session ID resumed and played beyond 79 seconds without media error; no captured browser errors/warnings. Explicit Stop removed the player. Temporary Chrome tab and test server closed. | Desktop browser only. Repeat locked-screen/Bluetooth/pause/disconnect/reconnect acceptance on the physical iPhone with this mixer, and run several hours with resource measurements. |
+| 2026-09-23 | Phase 2 cleanup | Temporary browser-test data and mixer reproduction output removed. Process inspection found no remaining test servers, audio integration jobs, or soundscape FFmpeg renderers. Four registered ambience fixtures remain under ignored `data/` for local use. | No server left running. Run `pnpm dev` and prepare a new ambience stream. |
 
 For each acceptance run, append commands/build revision, device/runtime versions, duration, results, and unresolved failures. Do not mark physical-device or overnight checks complete from unit tests, generated playlists, or a desktop preview.

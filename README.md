@@ -2,7 +2,7 @@
 
 A local procedural soundscape generator for sleep. The intended system combines reusable ambient beds, sparse locally planned/generated events, and continuous HLS playback on an iPhone.
 
-**Current state: Phase 1 playback prototype.** A local pink-noise fixture plays through live AAC/HLS with session controls, independent listeners, and automatic idle shutdown. Session persistence, scene creation, and AI ambience are not implemented. [SPEC.md](SPEC.md) defines v0.1; [PLAN.md](PLAN.md) tracks implementation and acceptance evidence separately.
+**Current state: Phase 2 procedural ambience.** Four normalized local beds rotate with 15-second crossfades through live AAC/HLS. SQLite preserves sessions, listener IDs, scene/clock state, bed selections, and asset usage across normal restarts. Prompt-driven scene creation and AI are not implemented. Long-duration and repeat iPhone acceptance remain open. [SPEC.md](SPEC.md) defines v0.1; [PLAN.md](PLAN.md) tracks implementation and acceptance evidence separately.
 
 ## Run locally
 
@@ -10,14 +10,14 @@ Use your shell-configured Node.js **24 LTS** (at least 24.12) and **pnpm 10.29.3
 
 ```sh
 pnpm install
-pnpm fixture:create
+pnpm ambience:create
 pnpm audio:smoke
 pnpm dev
 ```
 
-Install FFmpeg and ffprobe on your `PATH` first (for example, `brew install ffmpeg` on macOS). The verified host runs FFmpeg/ffprobe **9.0.2**. `fixture:create` synthesizes a deterministic 60-second, 44.1 kHz stereo WAV using quiet, filtered pink noise under `data/assets/fixtures/`. It uses no downloaded recording or model. The smoke test checks that the installed FFmpeg supports the required AAC/HLS operations.
+Install FFmpeg and ffprobe on your `PATH` first (for example, `brew install ffmpeg` on macOS). The verified host runs FFmpeg/ffprobe **9.0.2**. `ambience:create` synthesizes four deterministic 90-second, 44.1 kHz stereo WAVs under `data/assets/ambience/`, analyzes/normalizes their levels, and registers them in SQLite. They are subtle variations of filtered pink noise, not recordings or model-generated environments. `pnpm fixture:create` still creates the original single-bed fixture for transport regression tests. The smoke test checks that the installed FFmpeg supports the required AAC/HLS operations.
 
-Open [localhost:5173](http://localhost:5173), choose **Prepare test stream**, then use the audio player's Play control. Vite proxies `/api` to Fastify on port 3000. Both bind to `0.0.0.0` for trusted home-LAN development; a phone can use the host's LAN address and port 5173. No models, SQLite setup, or Docker are needed for this phase.
+Open [localhost:5173](http://localhost:5173), choose **Prepare test stream**, then use the audio player's Play control. Vite proxies `/api` to Fastify on port 3000. Both bind to `0.0.0.0` for trusted home-LAN development; a phone can use the host's LAN address and port 5173. No models or Docker are needed. SQLite initializes automatically using Node 24’s built-in `node:sqlite`; Node 24.12 emits its expected experimental-feature warning.
 
 Stop with Ctrl-C. The command starts a shared-package compiler watcher, the server watcher, and Vite. It builds shared contracts before starting the apps.
 
@@ -28,7 +28,7 @@ pnpm build
 pnpm start
 ```
 
-Open [localhost:3000](http://localhost:3000). Fastify serves the built web client and API. Run the build again after source changes. `/api/health` reports process connectivity and `static-streaming`; session status reports audio readiness.
+Open [localhost:3000](http://localhost:3000). Fastify serves the built web client and API. Run the build again after source changes. `/api/health` reports process connectivity and `procedural-ambience`; session status reports audio readiness.
 
 ## Configuration
 
@@ -49,7 +49,7 @@ The example explicitly sets the proxy target; update it if you change the API po
 
 ## Playback and session lifecycle
 
-Preparing a session renders three approximately 6-second segments, then stops FFmpeg until playback starts. Playback loops the fixture as 128 kbps stereo AAC in MPEG-TS HLS. The live playlist keeps ten segments; FFmpeg retains ten additional removed segments for lagging clients and publishes completed files atomically. Each restart uses a new run directory and sequence numbers; at most the current and previous runs are retained.
+Preparing an ambience session mixes 90 seconds of future PCM and publishes three approximately 6-second HLS segments, then stops processing until playback starts. Playback uses one continuous 128 kbps stereo AAC encoder in MPEG-TS HLS, fed with bounded PCM chunks. The live playlist keeps ten segments; FFmpeg retains ten additional removed segments for lagging clients and publishes completed files atomically. Each restart uses a new run directory and sequence numbers; at most the current and previous runs are retained.
 
 Each browser gets its own listener ID. Sharing the page URL lets another browser join the same session, with independent playback and pause controls. Playback is not synchronized. The prototype allows four sessions and sixteen listeners per session; **Stop session** ends it for everyone and removes its files.
 
@@ -57,7 +57,21 @@ An explicit pause stops rendering when nobody else is listening. Status polling,
 
 The client prefers native HLS and includes HLS.js for browsers requiring Media Source Extensions. Media Session metadata and play/pause/stop handlers are installed where supported. The user has confirmed loading, streaming, continued locked-screen playback, and “Quiet pink noise” / “Soundscapes” lock-screen metadata on a physical iPhone 15. The user also confirms Bluetooth sleep-bud playback while locked, lock-screen pause with server idle, and listener expiry 90 seconds after disabling Wi-Fi. A user-supplied debug response confirms post-expiry idle state, zero listeners, stopped rendering, and no producer PID. Lock-screen controls and manual resume after reconnect, preserving the session ID, are also user-confirmed. Automatic playback recovery after reconnect is not claimed.
 
-Sessions are in memory and do not survive a server restart. Normal stop/shutdown removes owned session files; recovery and orphan cleanup after a hard crash belong to Phase 2. Preparation and resume are bounded to 20 seconds, with errors shown in the UI. This fixture establishes transport behavior; it is not a seamless multi-bed mixer or a test of generated sleep ambience.
+Sessions live in `data/soundscapes.sqlite` with versioned migrations. Normal server shutdown stops processing and saves sessions as idle; restarting preserves their IDs, listener IDs, simulated time, and future bed selections. The original Phase 1 in-memory sessions cannot be recovered after their old process exits. Explicit **Stop session** remains terminal and removes its HLS/temp files.
+
+A server ownership lock prevents two servers from rendering or cleaning up the same data directory. Restart recovery discards orphaned UUID session/run folders and unfinished PCM, validates saved state, and rebuilds missing playlists with bounded preparation. A missing or invalid asset needed by a timeline becomes a visible preparation error; regenerate the local fixtures and start a new session. SQLite checkpoints active time once per second; after a hard crash, up to about one second of clock progress can be lost. Downtime never advances the simulated clock.
+
+Each mixer subprocess has a 30-second timeout and encoder readiness has a 20-second deadline. Errors are surfaced in the player; pause/stop waits for mixer cancellation and encoder exit. These are locally synthesized test beds, not a test of generated sleep ambience.
+
+## Ambience, buffering, and test volume
+
+Selection uses seeded weighted randomness, favors beds absent from recent history, and avoids immediate repeats when more than one asset is available. The seed, timeline, placeholder scene, and usage metadata are saved. A single available bed is an explicit degraded fallback; an empty library fails with setup instructions. Crossfades use equal-power 15-second envelopes, with FFmpeg applying them at absolute timeline positions so chunk boundaries do not reset fades.
+
+The controller renders 30-second PCM chunks toward 90 seconds ahead, with a 45-second minimum and 180-second ceiling. Normal refill settles around 90–120 seconds ahead. At most one mixer job runs per session; one PCM chunk (about 5.3 MB) is held in JavaScript for feeding the encoder. The scheduler retains ten minutes of selection history and the bounded future plan. HLS retention and the four-session limit also bound disk/process use.
+
+`playbackCursorMs` is a server active-time estimate, not an exact measurement of a phone’s speaker position. `renderedUntilMs` includes prepared PCM; `committedUntilMs` is the immutable boundary once a chunk starts entering the AAC encoder. Future event mixing must stay beyond that boundary. Idle freezes the scene clock and cancels further mixing/encoding; resume rebuilds future audio from saved timeline state. The placeholder simulated scene starts at 01:00 UTC on 2000-01-01 until prompt-based scene creation is implemented.
+
+Playback now has a fixed **4× amplitude boost (about +12 dB)** for testing, with a final peak limiter at 0.25 amplitude (about −12 dBFS). New ambience beds are normalized to approximately −36 dBFS RMS before this boost. This changes future encoder runs; pause/resume or create a new stream to hear it. User-configurable gain remains deferred. Perceptual comfort still requires listening on the actual sleep buds.
 
 ## Development checks and diagnostics
 
@@ -66,12 +80,22 @@ pnpm check       # XO, strict type checks, Vitest, production build
 pnpm lint:fix    # Apply XO's automatic fixes
 pnpm test:watch  # Interactive Vitest
 pnpm audio:smoke # Real FFmpeg AAC/HLS encode, probe, and decode
-pnpm audio:integration # Real HTTP stream and session lifecycle check
+pnpm audio:integration # Original fixture HTTP/lifecycle regression
+pnpm audio:mixer # Exact PCM continuity and crossfade level checks
+pnpm audio:phase2 # Ambience HTTP playback, buffers, lifecycle, and restart
 ```
 
-The 18 Vitest tests cover contracts/routes, validation, static serving, initialization, multiple listeners, pause/stop races, stale requests, elapsed time, watchdog/reconnect, retention, and renderer failures. They do not need FFmpeg. The two audio commands require FFmpeg/ffprobe and clean up their temporary outputs. `audio:integration` starts its own temporary server, decodes the HTTP stream, checks frozen output after pause, resumes, verifies a watchdog accelerated to four seconds, reconnects, and checks stop cleanup.
+The 24 Vitest tests cover contracts/routes, validation, static serving, initialization, multiple listeners, pause/stop races, stale requests, elapsed time, watchdog/reconnect, retention, renderer failures, SQLite/ownership recovery, and an eight-hour simulated bed schedule. They do not need FFmpeg. The audio commands require FFmpeg/ffprobe and clean up their temporary outputs. `audio:integration` starts its own temporary server, decodes the HTTP stream, checks frozen output after pause, resumes, verifies a watchdog accelerated to four seconds, reconnects, and checks stop cleanup. `audio:phase2` additionally creates four beds, decodes 105 seconds of HLS by default, samples buffer bounds, checks retained segment/PCM counts, and verifies playback after a normal restart. Its watchdog is accelerated to 30 seconds. `audio:mixer` compares split PCM chunks against a continuous reference through a crossfade and checks one-second RMS variation. These numeric checks do not establish perceived comfort or overnight reliability.
 
-For a session ID from the page's `?session=...` URL, open `/api/debug/sessions/<id>` on the same server origin. It shows state, `rendering`, `producerPid`, active elapsed time, and each listener's consumption age. Normal logs record lifecycle transitions without routine per-segment request logging. The watchdog currently logs a generic `event: "idle"` with `msg: "Session lifecycle"` at info level, not a message named "watchdog". `expired` is a listener state; after the last listener expires, confirm the top-level `status: "idle"`, `rendering: false`, and `producerPid: null`. Inspect this endpoint from the Mac while the phone is disconnected. If another listener remains active, rendering correctly continues. An info-level lifecycle message will be hidden if `LOG_LEVEL` is set to warn, error, fatal, or silent.
+For a longer isolated decoder run (requires the Mac to remain awake):
+
+```sh
+AUDIO_TEST_SECONDS=10800 pnpm audio:phase2
+```
+
+This runs three hours of decoding plus lifecycle checks and cleans up its temporary data. It is not a physical iPhone or Bluetooth test.
+
+For a session ID from the page's `?session=...` URL, open `/api/debug/sessions/<id>` on the same server origin. It shows state, `rendering`, `producerPid`, playback/render/commit cursors, buffer bounds, PCM queue depth, selected beds, simulated time, and each listener’s consumption age. Model/next-event fields explicitly show that inference and event scheduling are absent. Normal logs record lifecycle transitions without routine per-segment request logging. The watchdog now logs `event: "listener-expired"` with the timeout reason, followed by `event: "idle"` when the last listener expires. Both use `msg: "Session lifecycle"` at info level. `expired` is a listener state; after the last listener expires, confirm the top-level `status: "idle"`, `rendering: false`, and `producerPid: null`. Inspect this endpoint from the Mac while the phone is disconnected. If another listener remains active, rendering correctly continues. An info-level lifecycle message will be hidden if `LOG_LEVEL` is set to warn, error, fatal, or silent.
 
 `pnpm check` currently passes. The production build reports a bundle-size warning from the full HLS.js fallback; reducing that bundle is a later optimization. Desktop Chrome native HLS was verified through play, pause, resume, and stop. The embedded Codex preview crashed on playback; use regular Safari or Chrome for playback testing. The HLS.js fallback itself has not received browser acceptance yet.
 
@@ -97,13 +121,13 @@ PLAN.md            Ordered checklists, release gates, and verification evidence
 SPEC.md            Full product specification
 ```
 
-Keep the app factory free of listening side effects so tests can use Fastify injection; close it to release session resources. Keep Node/filesystem/model dependencies out of the shared package. Add scheduler, assets, persistence, and provider modules when their phases begin.
+Keep the app factory free of listening side effects so tests can use Fastify injection; close it to release session resources. Keep Node/filesystem/model dependencies out of the shared package. Keep mixing in `ambience/`, encoding in `audio/`, registration in `assets/`, and SQLite access in `persistence/`. Provider adapters come later.
 
 Runtime files live under ignored `data/` and `models/` directories. Do not commit generated audio, model weights, SQLite databases, HLS segments, local environment files, or logs.
 
 ## Next milestone and prerequisites
 
-Next is persistent procedural ambience (Phase 2). Physical transport behavior has passed; retain the remaining run-metadata follow-up in PLAN.md.
+Finish Phase 2 acceptance: listen through multiple bed transitions, run several hours with resource measurements, and repeat locked-screen iPhone/Bluetooth/pause/reconnect checks with the new mixer. Phase 1 device evidence remains valid for that earlier build. Event planning comes after stable ambience; configurable volume remains a later UX item.
 
 - **PWA foundation only:** a manifest and SVG icon exist; install icons, service-worker behavior, and on-device installation remain in the plan. LAN HTTP does not provide the secure context needed by service workers; decide and document local HTTPS when implementing that layer. See [MDN's service-worker prerequisites](https://developer.mozilla.org/en-US/docs/Web/API/Service_Worker_API/Using_Service_Workers).
 - **Models:** validate hardware, license, available durations, and generation speed before choosing a sound worker. A short-effects model must not be assumed to produce a 90-second ambient bed.
