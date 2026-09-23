@@ -33,15 +33,15 @@ Spec: §7, §22–26, §30, §35, §39–41, milestone 1 in §46.
 
 - [x] Repair/verify local FFmpeg and ffprobe, including AAC encoding and HLS output. Record versions and reproducible setup.
 - [x] Add one known, licensed local WAV fixture or a documented fixture-import command; keep large audio out of Git.
-- [ ] Define validated session requests/responses and the `initializing`, `active`, `idle`, `stopped`, `error` state machine. Start with an in-memory session repository.
-- [ ] Define initialization versus listener demand: bound initial preparation, enable ongoing work only for listeners, and never leave abandoned initialization generating indefinitely.
-- [ ] Implement session status, play, pause, and stop routes with idempotent controls and invalid-transition handling. Use the fixture explicitly until scene generation exists.
-- [ ] Loop the fixture through managed FFmpeg subprocesses into AAC and a sliding live HLS playlist (start with 6-second segments).
-- [ ] Serve playlists/segments under validated session IDs; set content types and cache behavior, reject traversal, publish completed segments atomically, and clean up old segments/processes.
-- [ ] Add native `<audio>` playback with user-gesture start, loading/failure states, pause/resume/stop, and supported Media Session metadata/actions.
-- [ ] Implement explicit playback signals and an independent stream-consumption watchdog (90 seconds by default). Status polling alone must not count as listening.
-- [ ] Cover prefetch/stale requests after explicit pause, absent clients, reconnects, and multiple listeners without claiming synchronized playback.
-- [ ] Verify pause or loss of consumption stops rendering and queued work; stop also cleans up session resources. Resume re-buffers without requiring browser JavaScript to stay alive.
+- [x] Define validated session requests/responses and the `initializing`, `active`, `idle`, `stopped`, `error` state machine. Start with an in-memory session repository.
+- [x] Define initialization versus listener demand: bound initial preparation, enable ongoing work only for listeners, and never leave abandoned initialization generating indefinitely.
+- [x] Implement session status, play, pause, and stop routes with idempotent controls and invalid-transition handling. Use the fixture explicitly until scene generation exists.
+- [x] Loop the fixture through managed FFmpeg subprocesses into AAC and a sliding live HLS playlist (start with 6-second segments).
+- [x] Serve playlists/segments under validated session IDs; set content types and cache behavior, reject traversal, publish completed segments atomically, and clean up old segments/processes.
+- [x] Add native `<audio>` playback with user-gesture start, loading/failure states, pause/resume/stop, and supported Media Session metadata/actions.
+- [x] Implement explicit playback signals and an independent stream-consumption watchdog (90 seconds by default). Status polling alone must not count as listening.
+- [x] Cover prefetch/stale requests after explicit pause, absent clients, reconnects, and multiple listeners without claiming synchronized playback.
+- [x] Verify pause or loss of consumption stops rendering and queued work; stop also cleans up session resources. Resume re-buffers without requiring browser JavaScript to stay alive.
 - [ ] Verify LAN access; document the temporary hostname/IP and port. Plan `soundscape.local` discovery and port routing rather than assuming mDNS creates itself.
 
 **Required physical-device gate before AI work:**
@@ -50,6 +50,8 @@ Spec: §7, §22–26, §30, §35, §39–41, milestone 1 in §46.
 - [ ] Confirm Control Center/lock-screen controls, explicit pause → server idle, and resume → playback.
 - [ ] Terminate/disconnect the client without sending pause; confirm watchdog → idle and no continuing rendering.
 - [ ] Record iPhone/iOS/browser/audio-device details, test duration, observed behavior, and server evidence below.
+
+Physical test steps and the debug endpoint are documented in [README.md](README.md#iphone-and-bluetooth-acceptance). The development LAN address was `192.168.4.64:5173`; verify the current address and reachability from the actual phone.
 
 ## Phase 2 — Persistent procedural ambience
 
@@ -142,10 +144,16 @@ These do not block v0.1 and should not displace transport reliability, resource 
 | Date | Area | Evidence / result | Boundary / next step |
 | --- | --- | --- | --- |
 | 2026-09-23 | Initial environment | Shell Node `v24.12.0`, pnpm `10.29.3`; repository initially contains only spec and guidance. | Keep the shell-selected Node; advise a current Node 24 LTS patch upgrade. |
-| 2026-09-23 | FFmpeg prerequisite | Homebrew FFmpeg fails to load `/opt/homebrew/opt/x265/lib/libx265.216.dylib`. | Repair/verify before Phase 1; no audio acceptance claimed. |
+| 2026-09-23 | FFmpeg prerequisite | Homebrew FFmpeg fails to load `/opt/homebrew/opt/x265/lib/libx265.216.dylib`. | Historical failure; resolved by the repair recorded below. |
 | 2026-09-23 | FFmpeg repair and AAC/HLS | User reinstalled FFmpeg; live checks report FFmpeg/ffprobe `9.0.2`. `pnpm audio:smoke` passes stereo 44.1 kHz AAC, 6-second HLS segmentation, sliding playlist, atomic publication, and decoding. | Resolves the earlier x265 blocker. `pnpm fixture:create` creates a deterministic 60-second pink-noise WAV under ignored `data/`; no downloaded/licensed recording is needed. Physical playback remains unverified. |
 | 2026-09-23 | Scaffold `29d49d0` | `pnpm install --frozen-lockfile` and `pnpm check` pass: XO, strict workspace/root type checks, 7 Vitest tests, shared/server/web builds. CI workflow added. | CI itself has not run remotely; no audio or model tests yet. |
 | 2026-09-23 | Browser/runtime `29d49d0` | `pnpm dev` at `:5173` and `pnpm start` at `:3000` both show the local API connected in the in-app browser, with no captured browser errors/warnings. Inspected desktop and 390×844 layout. | Browser viewport only, not a physical iPhone. No HLS, installed PWA, Bluetooth, or background-playback acceptance. |
 | 2026-09-23 | Cleanup | Test tab closed, viewport reset, development/production processes stopped; process inspection found no remaining workspace server/watchers. | No servers intentionally left running. |
+
+| 2026-09-23 | Static stream implementation `8e27ee8`, `7d460ed` | In-memory sessions, bounded preparation, 6-second AAC/HLS segments, atomic publication, bounded run retention, per-listener controls, 90-second watchdog, Media Session hooks, and debug endpoint implemented. | No persistence, models, procedural mixing, or installed PWA. Native controls on an actual iPhone remain unverified. |
+| 2026-09-23 | Automated Phase 1 checks | `pnpm check` passes lint, strict types, 18 Vitest tests, and production builds. `pnpm audio:smoke` passes using FFmpeg/ffprobe 9.0.2. `pnpm audio:integration` decodes real HTTP HLS and verifies pause/frozen clock, resume, watchdog idle, reconnect, stop, and removal of session files. | HTTP integration accelerates the watchdog to 4 seconds. Vite reports a bundle-size warning for the full HLS.js fallback. CI has not run remotely. |
+| 2026-09-23 | Desktop playback | Regular Chrome reported native HLS; observed advancing playback beyond 2 minutes 40 seconds after resume, with no media error or captured browser errors/warnings. Pause changed the server to idle; resume returned to playback; stop removed the player/session resources. Inspected the 390×844 layout. One active sample contained 25 segments totaling about 2.5 MiB across retained runs. | Short desktop test only, not a physical phone, listening-quality, long-run resource, or Bluetooth result. HLS.js fallback not yet browser-verified. The embedded Codex preview crashed when playback began. |
+| 2026-09-23 | Phase 1 device gate | Reproducible Safari/Bluetooth/lock-screen and stream-loss procedure added to README, with per-listener consumption ages and producer PID available at `/api/debug/sessions/<id>`. | Physical LAN access, iPhone lock-screen controls, Bluetooth playback, and disconnect/reconnect acceptance remain open. Complete this gate before AI integration. |
+| 2026-09-23 | Production and cleanup `7d460ed` | `pnpm start` served built HTML, JavaScript, and the `static-streaming` health response through `192.168.4.64:3000` from the host. Temporary development/production servers and FFmpeg renderers stopped; process/port checks found none remaining. Chrome test tab closed and viewport reset. | Host LAN-address access does not prove reachability from an iPhone. No server left running; start `pnpm dev` for device testing. |
 
 For each acceptance run, append commands/build revision, device/runtime versions, duration, results, and unresolved failures. Do not mark physical-device or overnight checks complete from unit tests, generated playlists, or a desktop preview.
