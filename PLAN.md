@@ -16,14 +16,14 @@
 
 Spec: §4, §41–45, §49–51.
 
-- [ ] Create `apps/web`, `apps/server`, and `packages/shared` as a pnpm workspace; commit a lockfile.
-- [ ] Add strict TypeScript, XO, Vitest, and root development/build/check commands.
-- [ ] Add a React starter screen and manifest foundation with honest availability states; do not present unimplemented scene creation as working.
-- [ ] Add a Fastify health endpoint and shared runtime-validated API contract.
-- [ ] Support same-origin API requests through the Vite development proxy and serve the built client from Fastify.
-- [ ] Validate server configuration, shut down cleanly, and ignore local data, model weights, secrets, and generated outputs.
-- [ ] Document setup, commands, repository boundaries, and current limitations; update `AGENTS.md` for the chosen stack.
-- [ ] Run lint, type checks, tests, build, and development/production smoke checks; inspect the actual browser screen.
+- [x] Create `apps/web`, `apps/server`, and `packages/shared` as a pnpm workspace; commit a lockfile.
+- [x] Add strict TypeScript, XO, Vitest, and root development/build/check commands.
+- [x] Add a React starter screen and manifest foundation with honest availability states; do not present unimplemented scene creation as working.
+- [x] Add a Fastify health endpoint and shared runtime-validated API contract.
+- [x] Support same-origin API requests through the Vite development proxy and serve the built client from Fastify.
+- [x] Validate server configuration, shut down cleanly, and ignore local data, model weights, secrets, and generated outputs.
+- [x] Document setup, commands, repository boundaries, and current limitations; update `AGENTS.md` for the chosen stack.
+- [x] Run lint, type checks, tests, build, and development/production smoke checks; inspect the actual browser screen.
 
 Exit: a fresh checkout can run `pnpm install` and `pnpm dev`, and the browser can reach the API. This is scaffolding, not an audio milestone.
 
@@ -143,5 +143,8 @@ These do not block v0.1 and should not displace transport reliability, resource 
 | --- | --- | --- | --- |
 | 2026-09-23 | Initial environment | Shell Node `v24.12.0`, pnpm `10.29.3`; repository initially contains only spec and guidance. | Keep the shell-selected Node; advise a current Node 24 LTS patch upgrade. |
 | 2026-09-23 | FFmpeg prerequisite | Homebrew FFmpeg fails to load `/opt/homebrew/opt/x265/lib/libx265.216.dylib`. | Repair/verify before Phase 1; no audio acceptance claimed. |
+| 2026-09-23 | Scaffold `29d49d0` | `pnpm install --frozen-lockfile` and `pnpm check` pass: XO, strict workspace/root type checks, 7 Vitest tests, shared/server/web builds. CI workflow added. | CI itself has not run remotely; no audio or model tests yet. |
+| 2026-09-23 | Browser/runtime `29d49d0` | `pnpm dev` at `:5173` and `pnpm start` at `:3000` both show the local API connected in the in-app browser, with no captured browser errors/warnings. Inspected desktop and 390×844 layout. | Browser viewport only, not a physical iPhone. No HLS, installed PWA, Bluetooth, or background-playback acceptance. |
+| 2026-09-23 | Cleanup | Test tab closed, viewport reset, development/production processes stopped; process inspection found no remaining workspace server/watchers. | No servers intentionally left running. |
 
 For each acceptance run, append commands/build revision, device/runtime versions, duration, results, and unresolved failures. Do not mark physical-device or overnight checks complete from unit tests, generated playlists, or a desktop preview.
