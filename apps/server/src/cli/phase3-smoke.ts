@@ -13,7 +13,7 @@ import {SessionManager} from '../sessions/manager.js';
 import {type Planner} from '../planning/contracts.js';
 
 const directory = await mkdtemp(path.join(tmpdir(), 'soundscapes-phase3-'));
-const defaults = readConfig();
+const defaults = readConfig({SOUND_ENABLED: 'false'});
 const config = {
 	...defaults, dataDirectory: directory, idleTimeoutMs: 30_000,
 	planner: {...defaults.planner, skipProbability: 0, delayBuckets: [{weight: 1, minimumSeconds: 3, maximumSeconds: 3}]},

@@ -122,10 +122,19 @@ export class RunSummary {
 			this.metric('ffmpegProcessCount', ffmpeg.length);
 			this.metric('ffmpegRssBytes', ffmpeg.reduce((sum, row) => sum + row.rssBytes, 0));
 			this.metric('ffmpegPsCpuPercent', ffmpeg.reduce((sum, row) => sum + row.cpuPercent, 0));
+			const sound = sample.processes.find(row => row.pid === sample.session?.soundWorker?.pid);
+			this.metric('soundWorkerRssBytes', sound?.rssBytes ?? 0);
+			this.metric('soundWorkerPsCpuPercent', sound?.cpuPercent ?? 0);
 		}
 	}
 
 	private observePlanning({session}: Sample) {
+		if (session?.soundWorker) {
+			this.metric('soundWorkerLoaded', Number(session.soundWorker.loaded));
+			this.metric('soundWorkerBusy', Number(session.soundWorker.busy));
+			this.metric('soundGenerationQueueCount', session.generationQueue?.length ?? 0);
+		}
+
 		if (session?.scheduledEvents) {
 			this.metric('scheduledEventCount', session.scheduledEvents.length);
 		}

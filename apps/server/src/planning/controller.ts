@@ -3,7 +3,7 @@ import {randomUUID} from 'node:crypto';
 import {type Scene} from '@soundscapes/shared';
 import {type Asset} from '../persistence/store.js';
 import {
-	eventProposalSchema, nextOpportunityDelay, unsafeDescription, type defaultDelayBuckets, type Planner, type PlannerContext, type ScheduledEvent, type PlanningState,
+	eventProposalSchema, nextOpportunityDelay, unsafeDescription, type defaultDelayBuckets, type Planner, type PlannerContext, type ScheduledEvent, type PlanningState, type EventProposal,
 } from './contracts.js';
 
 export type {PlanningState} from './contracts.js';
@@ -11,13 +11,14 @@ type Options = {
 	state: PlanningState; planner: Planner; skipProbability: number; delayScale: number; timeoutMs: number; random?: () => number;
 	delayBuckets?: typeof defaultDelayBuckets;
 	context: () => PlannerContext; assets: () => Asset[]; active: () => boolean;
-	schedule: (event: Omit<ScheduledEvent, 'startMs' | 'simulatedTime'>, signal: AbortSignal) => Promise<ScheduledEvent | undefined>;
+	schedule: (event: Omit<ScheduledEvent, 'startMs' | 'simulatedTime'>, signal: AbortSignal, deadlinePlaybackMs: number) => Promise<ScheduledEvent | undefined>;
+	generate?: (proposal: EventProposal, signal: AbortSignal, deadlineAt: number) => Promise<Asset>;
 	changed: () => void; log: (event: string, detail?: string) => void;
 };
 
 export function eligibleAssets(assets: Asset[], scene: Scene, history: ScheduledEvent[], elapsedMs: number) {
 	const recent = history.filter(event => event.startMs + event.durationMs >= elapsedMs - (30 * 60_000));
-	return assets.filter(asset => asset.kind === 'event' && asset.event?.reviewedSleepSafe
+	return assets.filter(asset => asset.kind === 'event' && asset.event && (asset.event.reviewedSleepSafe || asset.generation?.validation === 'levels-v1')
 		&& scene.allowedEventCategories.includes(asset.event.category)
 		&& !unsafeDescription(`${asset.title} ${asset.event.tags.join(' ')}`)
 		&& !recent.some(event => event.assetId === asset.id || (event.category === asset.event!.category && event.startMs >= elapsedMs - (10 * 60_000))));
@@ -89,7 +90,8 @@ export class EventController {
 	}
 
 	private async plan(abort: AbortController) {
-		const signal = AbortSignal.any([abort.signal, AbortSignal.timeout(this.options.timeoutMs)]);
+		const signal = AbortSignal.any([abort.signal, AbortSignal.timeout(this.options.generate ? 90_000 : this.options.timeoutMs)]);
+		const deadlineAt = Date.now() + 90_000;
 		try {
 			const context = this.options.context();
 			const eligible = eligibleAssets(this.options.assets(), context.scene, context.recentEvents, context.elapsedMs);
@@ -97,7 +99,8 @@ export class EventController {
 				id: asset.id, title: asset.title, category: asset.event!.category, durationSeconds: asset.durationMs / 1000, tags: asset.event!.tags,
 			}));
 			// Race even adapters that fail to honor cancellation; late results are never applied.
-			const proposal = eventProposalSchema.parse(await abortable(this.options.planner.propose(context, signal), signal));
+			const planningSignal = AbortSignal.any([signal, AbortSignal.timeout(this.options.timeoutMs)]);
+			const proposal = eventProposalSchema.parse(await abortable(this.options.planner.propose(context, planningSignal), planningSignal));
 			if (signal.aborted || !this.options.active()) {
 				return;
 			}
@@ -107,18 +110,32 @@ export class EventController {
 				return;
 			}
 
-			const asset = eligible.find(asset => asset.id === proposal.assetId);
-			if (proposal.category !== asset?.event?.category || proposal.durationSeconds === null || proposal.durationSeconds < 2 || proposal.prominence === null
-				|| unsafeDescription(proposal.event) || proposal.durationSeconds * 1000 > asset.durationMs) {
-				this.skip('Proposal rejected by library, duration or sleep-mode rules');
+			if (invalidProposal(proposal, context)) {
+				this.skip('Proposal rejected by context, repetition or sleep-mode rules');
+				return;
+			}
+
+			let asset = eligible.find(asset => asset.id === proposal.assetId);
+			if (!asset && proposal.assetId === null && this.options.generate) {
+				asset = await abortable(this.options.generate(proposal, signal, deadlineAt), signal);
+			}
+
+			if (!asset || proposal.category !== asset.event?.category || proposal.durationSeconds! * 1000 > asset.durationMs
+				|| eligibleAssets([asset], context.scene, context.recentEvents, context.elapsedMs).length === 0) {
+				this.skip('Proposal rejected by library or duration rules');
+				return;
+			}
+
+			signal.throwIfAborted();
+			if (!this.options.active()) {
 				return;
 			}
 
 			const scheduled = await this.options.schedule({
 				id: randomUUID(), assetId: asset.id, description: proposal.event, category: asset.event.category,
-				durationMs: Math.round(proposal.durationSeconds * 1000), prominence: proposal.prominence,
-				gain: Math.min(0.5, 0.15 + proposal.prominence), fadeMs: 1000, pan: (this.random() - 0.5) * 0.3, lowpassHz: 3500,
-			}, signal);
+				durationMs: Math.round(proposal.durationSeconds! * 1000), prominence: proposal.prominence!,
+				gain: Math.min(0.5, 0.15 + proposal.prominence!), fadeMs: 1000, pan: (this.random() - 0.5) * 0.3, lowpassHz: 3500,
+			}, signal, context.earliestPlaybackMs + 60_000);
 			if (scheduled) {
 				this.options.log('event-scheduled', `${asset.title} at ${scheduled.startMs}ms`);
 			} else {
@@ -148,4 +165,10 @@ export async function abortable<T>(promise: Promise<T>, signal: AbortSignal): Pr
 	} finally {
 		signal.removeEventListener('abort', listener);
 	}
+}
+
+function invalidProposal(proposal: EventProposal, context: PlannerContext) {
+	return !proposal.category || !context.scene.allowedEventCategories.includes(proposal.category) || proposal.durationSeconds === null
+		|| proposal.durationSeconds < 2 || proposal.prominence === null || !proposal.event || unsafeDescription(proposal.event)
+		|| context.recentEvents.some(event => event.category === proposal.category && event.startMs >= context.elapsedMs - 600_000);
 }

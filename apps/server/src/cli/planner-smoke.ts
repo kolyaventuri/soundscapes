@@ -55,9 +55,17 @@ try {
 		assert.equal(proposal.category, 'wind');
 	}
 
+	const generationStarted = performance.now();
+	const generatedProposal = await planner.propose({...context, canGenerate: true}, signal);
+	if (generatedProposal.event !== null) {
+		assert.equal(generatedProposal.assetId, null);
+		assert.ok(scene.allowedEventCategories.includes(generatedProposal.category!));
+		assert.ok(generatedProposal.durationSeconds! >= 2);
+	}
+
 	const result = {
 		at: new Date().toISOString(), model: config.planner.model, sceneMs, nullMs, eventMs: performance.now() - eventStarted,
-		maximumModelBytes, maximumGpuBytes, scene, empty, proposal,
+		maximumModelBytes, maximumGpuBytes, scene, empty, proposal, generatedProposal, generationProposalMs: performance.now() - generationStarted,
 		note: 'Real local model calls. Memory is sampled Ollama-reported model/VRAM allocation, not total host usage or an overnight result.',
 	};
 	const directory = path.join(config.dataDirectory, 'planner-checks');
@@ -65,7 +73,7 @@ try {
 	const file = path.join(directory, `${Date.now()}.json`);
 	await writeJson(file, result);
 	console.log(JSON.stringify(result, null, 2));
-	console.log(`PASS: scene/date contract, empty-library null and library-only proposal. Evidence: ${file}`);
+	console.log(`PASS: scene/date contract, empty-library null, library-only and generation-enabled proposals. Evidence: ${file}`);
 } finally {
 	clearInterval(timer);
 }

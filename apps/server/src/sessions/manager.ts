@@ -16,6 +16,8 @@ import {startAmbienceRenderer} from '../ambience/renderer.js';
 import {timelineSchema, type TimelineState} from '../ambience/timeline.js';
 import {Store, type Asset} from '../persistence/store.js';
 import {type AppConfig} from '../config.js';
+import {GenerationService, sceneKey} from '../generation/service.js';
+import {type SoundGenerator} from '../generation/contracts.js';
 import {OllamaPlanner} from '../planning/ollama.js';
 import {EventController, abortable, type PlanningState} from '../planning/controller.js';
 import {
@@ -50,6 +52,8 @@ type Record = {
 	currentRun: string | undefined;
 	pending: Promise<void>;
 	planningEnabled: boolean;
+	generationEnabled: boolean;
+	preparation: string;
 	sceneReady: boolean;
 	planning: PlanningState;
 	scheduledEvents: ScheduledEvent[];
@@ -64,6 +68,7 @@ const savedSchema = z.object({
 	scene: sceneSchema.default(fixtureScene), timeline: timelineSchema, assetIds: z.array(z.uuid()).max(16),
 	listeners: z.array(z.tuple([z.uuid(), z.object({state: z.enum(['playing', 'paused', 'expired']), lastConsumptionAt: z.number()})])).max(16),
 	runs: z.array(z.uuid()).max(2), currentRun: z.uuid().optional(),
+	generationEnabled: z.boolean().default(false), preparation: z.string().default(''),
 	planningEnabled: z.boolean().default(false), sceneReady: z.boolean().default(true),
 	planning: planningStateSchema.default({nextOpportunityMs: null, opportunities: 0, skipped: 0}),
 	scheduledEvents: z.array(scheduledEventSchema).max(32).default([]),
@@ -77,6 +82,7 @@ type Options = {
 	automaticWatchdog?: boolean;
 	onEvent?: (event: string, sessionId: string, detail?: string) => void;
 	planner?: Planner;
+	soundGenerator?: SoundGenerator;
 };
 
 async function settled(promise: Promise<unknown>) {
@@ -97,11 +103,13 @@ export class SessionManager {
 	private readonly onEvent: NonNullable<Options['onEvent']>;
 	private readonly timer: ReturnType<typeof setInterval> | undefined;
 	private readonly planner: Planner;
+	private readonly generation: GenerationService;
 	private closing = false;
 	private sweeping = false;
 
 	constructor({
-		config, store = new Store(), rendererFactory = startRenderer, now = () => performance.timeOrigin + performance.now(), automaticWatchdog = true, onEvent = () => undefined, planner,
+		config, store = new Store(), rendererFactory = startRenderer, now = () => performance.timeOrigin + performance.now(), automaticWatchdog = true,
+		onEvent = () => undefined, planner, soundGenerator,
 	}: Options) {
 		this.config = config;
 		this.store = store;
@@ -110,6 +118,7 @@ export class SessionManager {
 		this.now = now;
 		this.onEvent = onEvent;
 		this.planner = planner ?? new OllamaPlanner(config.planner);
+		this.generation = new GenerationService(config, store, soundGenerator);
 		if (automaticWatchdog) {
 			this.timer = setInterval(() => {
 				void this.watchdog();
@@ -119,6 +128,7 @@ export class SessionManager {
 	}
 
 	async initialize() {
+		await this.generation.initialize();
 		for (const value of this.store.loadSessions()) {
 			const saved = savedSchema.parse(value);
 			const session: Record = {
@@ -134,7 +144,7 @@ export class SessionManager {
 		await this.recoverFiles();
 		for (const session of this.records.values()) {
 			this.save(session);
-			if (session.status === 'idle' && !session.currentRun) {
+			if (session.status === 'idle' && !session.currentRun && !session.generationEnabled) {
 				void this.prepare(session);
 			}
 		}
@@ -161,7 +171,9 @@ export class SessionManager {
 		}
 
 		const session: Record = {
-			id: randomUUID(), mode, scene: {...fixtureScene, originalPrompt: prompt ?? ''}, timeline: {seed: Math.floor(Math.random() * 0x1_00_00_00_00), beds: []}, assetIds: [],
+			id: randomUUID(), mode, scene: {...fixtureScene, title: prompt ? 'Preparing your scene' : fixtureScene.title, originalPrompt: prompt ?? ''},
+			timeline: {seed: Math.floor(Math.random() * 0x1_00_00_00_00), beds: []}, assetIds: [],
+			generationEnabled: Boolean(prompt) && this.config.sound.enabled, preparation: '',
 			planningEnabled: Boolean(prompt), sceneReady: !prompt, planning: {nextOpportunityMs: null, opportunities: 0, skipped: 0}, scheduledEvents: [],
 			eventAssets: [], controller: undefined, initialization: prompt ? new AbortController() : undefined,
 			status: 'initializing', createdAt: this.now(), activeSince: undefined,
@@ -211,6 +223,12 @@ export class SessionManager {
 
 				this.transition(session, 'active');
 			} catch (error) {
+				if (this.closing || (error instanceof Error && error.name === 'AbortError')) {
+					listener.state = 'paused';
+					this.transition(session, 'idle');
+					return this.view(session);
+				}
+
 				await this.fail(session, error);
 				throw new SessionError(503, session.error!);
 			}
@@ -222,6 +240,12 @@ export class SessionManager {
 
 	async pause(id: string, listenerId: string) {
 		const session = this.record(id);
+		this.listener(session, listenerId);
+		if (this.listenerCount(session) <= 1) {
+			session.initialization?.abort();
+			session.controller?.cancel();
+		}
+
 		return this.enqueue(session, async () => {
 			this.listener(session, listenerId).state = 'paused';
 			if (session.status !== 'stopped' && session.status !== 'error' && this.listenerCount(session) === 0) {
@@ -327,7 +351,8 @@ export class SessionManager {
 			activeAmbience: session.timeline.beds.filter(bed => bed.startMs <= playbackCursorMs && bed.startMs + bed.durationMs > playbackCursorMs).map(bed => bed.assetId),
 			ambiencePoolSize: session.assetIds.length, degradedSingleBed: session.mode === 'ambience' && session.assetIds.length === 1,
 			scheduledBeds: session.timeline.beds, scheduledEvents: session.scheduledEvents,
-			generationQueue: session.controller?.busy ? [{kind: 'event-planning'}] : [],
+			generationQueue: this.generation.queue.jobs.filter(job => job.sessionId === session.id),
+			soundWorker: this.generation.generator.diagnostics(),
 			...this.planningDebug(session, playbackCursorMs),
 			...this.view(session), producerPid: session.renderer?.running ? session.renderer.pid : null,
 			currentRun: session.currentRun ?? null,
@@ -412,6 +437,7 @@ export class SessionManager {
 			this.save(session);
 		})));
 		await Promise.all([...this.records.values()].map(async session => session.controller?.settled()));
+		await this.generation.close();
 		this.store.close();
 	}
 
@@ -431,6 +457,7 @@ export class SessionManager {
 		this.store.saveSession(session.id, {
 			id: session.id, mode: session.mode, status: session.status, createdAt: session.createdAt,
 			elapsedMs: this.elapsed(session), error: session.error, scene: session.scene, timeline: session.timeline, assetIds: session.assetIds,
+			generationEnabled: session.generationEnabled, preparation: session.preparation,
 			planningEnabled: session.planningEnabled, sceneReady: session.sceneReady, planning: session.planning, scheduledEvents: session.scheduledEvents,
 			listeners: [...session.listeners], runs: [...session.runs.keys()].slice(-2), currentRun: session.currentRun,
 		});
@@ -505,6 +532,7 @@ export class SessionManager {
 	private view(session: Record): Session {
 		return {
 			id: session.id, mode: session.mode, title: session.mode === 'fixture' ? 'Quiet pink noise' : session.scene.title, status: session.status,
+			audioSource: session.generationEnabled ? 'generated' : 'fixture', preparation: session.preparation,
 			ready: session.currentRun !== undefined, rendering: session.renderer?.running ?? false,
 			listenerCount: this.listenerCount(session), createdAt: new Date(session.createdAt).toISOString(),
 			activeElapsedMs: this.elapsed(session),
@@ -545,20 +573,6 @@ export class SessionManager {
 	private async prepare(session: Record) {
 		await this.enqueue(session, async () => {
 			try {
-				if (!session.sceneReady) {
-					const abort = session.initialization ?? new AbortController();
-					session.initialization = abort;
-					const signal = AbortSignal.any([abort.signal, AbortSignal.timeout(this.config.planner.timeoutMs)]);
-					try {
-						signal.throwIfAborted();
-						session.scene = await abortable(this.planner.parseScene(session.scene.originalPrompt, signal), signal);
-						session.sceneReady = true;
-						this.save(session);
-					} finally {
-						session.initialization = undefined;
-					}
-				}
-
 				await this.start(session);
 				await session.renderer?.stop();
 				this.transition(session, 'idle');
@@ -573,8 +587,41 @@ export class SessionManager {
 		});
 	}
 
+	private async prepareResources(session: Record) {
+		const abort = session.initialization ?? new AbortController();
+		session.initialization = abort;
+		try {
+			abort.signal.throwIfAborted();
+			if (!session.sceneReady) {
+				session.preparation = 'Understanding your scene';
+				const signal = AbortSignal.any([abort.signal, AbortSignal.timeout(this.config.planner.timeoutMs)]);
+				session.scene = await abortable(this.planner.parseScene(session.scene.originalPrompt, signal), signal);
+				session.sceneReady = true;
+				this.save(session);
+			}
+
+			if (session.generationEnabled && session.assetIds.length < 4) {
+				session.preparation = 'Preparing ambience 0 of 4';
+				await this.generation.beds(session.scene, {
+					sessionId: session.id, signal: abort.signal, valid: () => !this.closing && session.status === 'initializing',
+				}, assets => {
+					session.assetIds = assets.map(asset => asset.id);
+					session.preparation = `Preparing ambience ${assets.length} of 4`;
+					this.onEvent('ambience-prepared', session.id, `${assets.length}/4`);
+					this.save(session);
+				});
+			}
+
+			abort.signal.throwIfAborted();
+			session.preparation = 'Buffering your stream';
+		} finally {
+			session.initialization = undefined;
+		}
+	}
+
 	private async start(session: Record) {
 		this.transition(session, 'initializing');
+		await this.prepareResources(session);
 		if (session.mode === 'fixture') {
 			const fixture = await stat(this.config.fixturePath);
 			if (!fixture.isFile() || fixture.size > 128 * 1024 * 1024) {
@@ -590,9 +637,10 @@ export class SessionManager {
 				void this.rendererFailed(session, runId, error);
 			},
 		};
-		const assets = session.mode === 'ambience' ? await playableAssets(this.config, this.store) : [];
+		const available = session.mode === 'ambience' ? await playableAssets(this.config, this.store) : [];
+		const assets = available.filter(asset => session.generationEnabled ? session.assetIds.includes(asset.id) : !asset.generation);
 		const eventAssets = session.planningEnabled ? await playableAssets(this.config, this.store, 'event') : [];
-		session.eventAssets = eventAssets.filter(asset => asset.event).slice(0, 64);
+		session.eventAssets = eventAssets.filter(asset => asset.event && (!asset.generation || asset.generation.sceneKey === sceneKey(session.scene))).slice(0, 64);
 		if (session.mode === 'ambience' && session.assetIds.length === 0) {
 			session.assetIds = assets.map(asset => asset.id);
 		}
@@ -625,6 +673,7 @@ export class SessionManager {
 		session.runs.set(runId, directory);
 		await renderer.ready();
 		session.currentRun = runId;
+		session.preparation = '';
 		while (session.runs.size > 2) {
 			const oldest = session.runs.entries().next().value;
 			if (!oldest) {
@@ -654,7 +703,9 @@ export class SessionManager {
 		}
 
 		session.error = session.sceneReady
-			? 'Audio could not be prepared. Run pnpm fixture:create or pnpm ambience:create, then pnpm audio:smoke, then create a new session.'
+			? (session.generationEnabled
+				? `Scene audio preparation failed. Check pnpm sound:setup and pnpm sound:smoke, then create a new session. ${String(error).slice(0, 300)}`
+				: 'Audio could not be prepared. Run pnpm fixture:create or pnpm ambience:create, then pnpm audio:smoke, then create a new session.')
 			: `Scene planning failed. Start the local Ollama server, pull ${this.config.planner.model}, and try again. ${String(error).slice(0, 300)}`;
 		this.onEvent('renderer-error', session.id, String(error));
 		this.transition(session, 'error');
@@ -666,7 +717,7 @@ export class SessionManager {
 			planning: {
 				...session.planning, enabled: session.planningEnabled, busy: session.controller?.busy ?? false, model: this.config.planner.model,
 			},
-			modelState: {plannerRequestActive: this.planner.busy, residency: 'not-polled; requests use keep_alive=0'}, modelsLoaded: {llm: null, sound: false},
+			modelState: {plannerRequestActive: this.planner.busy, residency: 'not-polled; requests use keep_alive=0'}, modelsLoaded: {llm: null, sound: this.generation.generator.diagnostics().loaded},
 		};
 	}
 
@@ -675,11 +726,36 @@ export class SessionManager {
 			state: session.planning, planner: this.planner, ...this.config.planner,
 			active: () => !this.closing && session.status === 'active',
 			assets: () => session.eventAssets,
+			...(session.generationEnabled
+				? {
+					generate: async (proposal, signal, deadlineAt) => {
+						const asset = await this.generation.event(session.scene, proposal, {
+							sessionId: session.id, signal, deadlineAt, valid: () => !this.closing && session.status === 'active',
+						});
+						if (!session.eventAssets.some(existing => existing.id === asset.id)) {
+							const used = new Set(session.scheduledEvents.map(event => event.assetId));
+							while (session.eventAssets.length >= 64) {
+								const unused = session.eventAssets.findIndex(existing => !used.has(existing.id));
+								if (unused === -1) {
+									throw new Error('Event asset catalog is full');
+								}
+
+								session.eventAssets.splice(unused, 1);
+							}
+
+							session.eventAssets.push(asset);
+						}
+
+						return asset;
+					},
+				}
+				: {}),
 			context: () => ({
 				scene: session.scene, simulatedTime: this.view(session).simulatedTime, elapsedMs: this.elapsed(session),
 				ambientState: session.timeline.beds.filter(bed => bed.startMs <= this.elapsed(session) && bed.startMs + bed.durationMs > this.elapsed(session))
 					.map(bed => this.store.assets().find(asset => asset.id === bed.assetId)?.title ?? bed.assetId),
-				recentEvents: this.store.events(session.id).map(value => scheduledEventSchema.parse(value)), library: [], earliestPlaybackMs: session.renderer?.eventStartMs?.() ?? 0,
+				recentEvents: this.store.events(session.id).map(value => scheduledEventSchema.parse(value)),
+				library: [], canGenerate: session.generationEnabled, earliestPlaybackMs: session.renderer?.eventStartMs?.() ?? 0,
 			}),
 			changed: () => {
 				this.save(session);
@@ -687,13 +763,13 @@ export class SessionManager {
 			log: (event, detail) => {
 				this.onEvent(event, session.id, detail);
 			},
-			schedule: async (event, signal) => this.enqueue(session, async () => {
+			schedule: async (event, signal, deadlinePlaybackMs) => this.enqueue(session, async () => {
 				if (signal.aborted || this.closing || session.status !== 'active' || !session.renderer?.running || !session.renderer.eventStartMs) {
 					return undefined;
 				}
 
 				const startMs = session.renderer.eventStartMs();
-				if (session.scheduledEvents.length >= 32 || session.scheduledEvents.some(previous => Math.abs(previous.startMs - startMs) < 60_000)) {
+				if (startMs > deadlinePlaybackMs || session.scheduledEvents.length >= 32 || session.scheduledEvents.some(previous => Math.abs(previous.startMs - startMs) < 60_000)) {
 					return undefined;
 				}
 

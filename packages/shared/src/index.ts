@@ -21,6 +21,8 @@ export const sessionSchema = z.object({
 	mode: z.enum(['fixture', 'ambience']),
 	title: z.string(),
 	status: sessionStatusSchema,
+	audioSource: z.enum(['fixture', 'generated']).default('fixture'),
+	preparation: z.string().default(''),
 	ready: z.boolean(),
 	rendering: z.boolean(),
 	listenerCount: z.number().int().nonnegative(),

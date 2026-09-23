@@ -28,7 +28,10 @@
     "event:import": "pnpm --filter @soundscapes/server event:import",
     "planner:smoke": "pnpm --filter @soundscapes/server planner:smoke",
     "audio:phase3": "pnpm --filter @soundscapes/server audio:phase3",
-    "event:fixture": "pnpm --filter @soundscapes/server event:fixture"
+    "event:fixture": "pnpm --filter @soundscapes/server event:fixture",
+    "sound:setup": "pnpm --filter @soundscapes/server sound:setup",
+    "sound:smoke": "pnpm --filter @soundscapes/server sound:smoke",
+    "audio:phase4": "pnpm --filter @soundscapes/server audio:phase4"
   },
   "devDependencies": {
     "@types/node": "^24.13.6",

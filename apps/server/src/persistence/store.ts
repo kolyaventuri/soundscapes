@@ -1,6 +1,7 @@
 import {DatabaseSync} from 'node:sqlite';
 import {z} from 'zod';
 import {eventCategorySchema} from '@soundscapes/shared';
+import {generationMetadataSchema} from '../generation/contracts.js';
 
 export const assetSchema = z.object({
 	id: z.uuid(), kind: z.enum(['ambience', 'event']), title: z.string(),
@@ -8,7 +9,8 @@ export const assetSchema = z.object({
 	durationMs: z.number().positive().max(120_000), sampleRate: z.literal(44_100), channels: z.literal(2),
 	peakDb: z.number().max(-12), meanDb: z.number(), source: z.string(),
 	usageCount: z.number().int().nonnegative().default(0), lastUsedAt: z.string().nullable().default(null),
-	event: z.object({category: eventCategorySchema, tags: z.array(z.string().max(80)).max(12), reviewedSleepSafe: z.literal(true)}).optional(),
+	event: z.object({category: eventCategorySchema, tags: z.array(z.string().max(80)).max(12), reviewedSleepSafe: z.boolean()}).optional(),
+	generation: generationMetadataSchema.optional(),
 });
 export type Asset = z.infer<typeof assetSchema>;
 

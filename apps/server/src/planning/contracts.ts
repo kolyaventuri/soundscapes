@@ -16,7 +16,10 @@ export const scheduledEventSchema = z.object({
 });
 export type ScheduledEvent = z.infer<typeof scheduledEventSchema>;
 export type LibraryEntry = {id: string; title: string; category: z.infer<typeof eventCategorySchema>; durationSeconds: number; tags: string[]};
-export type PlannerContext = {scene: Scene; simulatedTime: string; elapsedMs: number; ambientState: string[]; recentEvents: ScheduledEvent[]; library: LibraryEntry[]; earliestPlaybackMs: number};
+export type PlannerContext = {
+	scene: Scene; simulatedTime: string; elapsedMs: number; ambientState: string[]; recentEvents: ScheduledEvent[];
+	library: LibraryEntry[]; earliestPlaybackMs: number; canGenerate?: boolean;
+};
 export type Planner = {
 	parseScene: (prompt: string, signal: AbortSignal) => Promise<Scene>;
 	propose: (context: PlannerContext, signal: AbortSignal) => Promise<EventProposal>;
@@ -45,7 +48,7 @@ export const hardConstraints = [
 	'No intelligible speech or music',
 	'No explosions, screaming, gunfire, crashes, alarms, sirens, horns or sharp impacts',
 	'No sudden nearby animals or dramatic weather changes',
-	'Only subtle, reviewed library sounds; no change to the weather',
+	'Only subtle, distant environmental sounds; no change to the weather',
 ];
 // eslint-disable-next-line @stylistic/max-len -- Keep the auditable exclusion expression intact.
 const unsafe = /\b(explos\w*|scream\w*|gun\w*|crash\w*|alarm\w*|siren\w*|horn\w*|bang\w*|slam\w*|thunder\w*|storm\w*|shout\w*|speech|conversation\w*|voice\w*|speak\w*|music|bark\w*|roar\w*|sudden|sharp|loud|nearby)\b/i;

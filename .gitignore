@@ -10,3 +10,5 @@ coverage/
 !.env.example
 data/
 models/
+__pycache__/
+*.pyc

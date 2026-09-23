@@ -53,10 +53,14 @@ export class OllamaPlanner implements Planner {
 			category: eventCategorySchema.or(z.literal('none')), durationSeconds: z.number().min(0).max(30), prominence: z.number().min(0).max(0.2), reason: z.string().max(500),
 		});
 		const instruction = [
-			'Return JSON choosing decision="skip" or at most ONE subtle library event. Both choices are valid; do not force an event.',
-			'If library is empty or unsuitable, MUST choose skip, description="", assetId="", category="none", durationSeconds=0, prominence=0.',
-			'For decision="event", choose an exact library ID/category; description is the event, duration fits the asset, prominence <=0.2.',
-			'Never invent assets, change weather, add speech/music/startling sounds, or repeat recent assets/categories. Respect original scene prompt and restrictions.',
+			'Return JSON choosing decision="skip" or at most ONE subtle environmental event. Both choices are valid; do not force an event.',
+			context.canGenerate
+				? 'Prefer a suitable library asset. If none fits, propose a gentle 2-15 second sound for local generation '
+				+ 'with assetId="" and a permitted category. Use scene context and remain sparse.'
+				: 'If library is empty or unsuitable, MUST choose skip, description="", assetId="", category="none", durationSeconds=0, prominence=0.',
+			'For library events choose an exact library ID/category; description is the event, duration fits the asset, prominence <=0.2. '
+			+ 'For skip use empty strings, category="none" and numeric zeros.',
+			'Never invent an existing library ID, change weather, add speech/music/startling sounds, or repeat recent assets/categories. Respect original scene prompt and restrictions.',
 			'An unrepeated compatible sound may be selected. Ambient beds are not discrete events. A soft breeze in light wind is not a weather change.',
 			'Base suitability on the actual library contents. For example, a reviewed soft woodland breeze fits a woodland scene with light wind and no recent breeze.',
 			'A sparse scene still permits occasional activity. Prefer a compatible event when the history is empty after ten minutes; skip if none fits or recent activity suggests quiet.',
@@ -70,7 +74,8 @@ export class OllamaPlanner implements Planner {
 				event: null, assetId: null, category: null, durationSeconds: null, prominence: null, reason: choice.reason,
 			}
 			: {
-				event: choice.description, assetId: choice.assetId, category: choice.category, durationSeconds: choice.durationSeconds, prominence: choice.prominence, reason: choice.reason,
+				event: choice.description, assetId: context.canGenerate && choice.assetId === '' ? null : choice.assetId, category: choice.category,
+				durationSeconds: choice.durationSeconds, prominence: choice.prominence, reason: choice.reason,
 			});
 	}
 

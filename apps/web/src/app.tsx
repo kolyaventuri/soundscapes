@@ -27,9 +27,9 @@ function restoreConnection() {
 
 function statusLabel(session: Session) {
 	const labels = {
-		initializing: 'Preparing your stream…',
+		initializing: `${session.preparation || 'Preparing your stream'}…`,
 		active: `Streaming · ${session.listenerCount} listening`,
-		idle: 'Ready · rendering paused',
+		idle: session.ready ? 'Ready · rendering paused' : 'Preparation paused',
 		stopped: 'Session stopped',
 		error: 'Preparation failed',
 	};
@@ -250,15 +250,14 @@ export function App() {
 					)}
 				</h1>
 				<p className="introduction">
-					Soft ambient air, streaming from your local server.
+					Your setting, quietly brought to life on your local server.
 				</p>
 				<div className="notice">
 					<p className="notice-title">A setting for the quiet.</p>
 					<p>
-						Describe a place to guide occasional sounds from your local event
-						library. For now, every setting uses the same soft-air test
-						ambience; scene-specific audio comes later. Leave the description
-						blank for a playback test without a planner.
+						Describe a place to create its ambience and occasional distant
+						sounds. Preparing a new scene can take a few minutes. Leave the
+						description blank for a soft-air playback test.
 					</p>
 				</div>
 				{showSetup && !join ? (

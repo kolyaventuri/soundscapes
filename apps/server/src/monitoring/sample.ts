@@ -34,6 +34,10 @@ const sessionDebugSchema = z.object({
 		enabled: z.boolean(), busy: z.boolean(), model: z.string().max(120), opportunities: nonnegative, skipped: nonnegative, nextOpportunityMs: nonnegative.nullable(),
 	}).optional(),
 	modelState: z.object({plannerRequestActive: z.boolean(), residency: z.string().max(128)}).optional(),
+	soundWorker: z.object({pid: z.number().int().positive().nullable(), loaded: z.boolean(), busy: z.boolean()}).optional(),
+	generationQueue: z.array(z.object({
+		id: z.uuid(), sessionId: z.uuid(), kind: z.enum(['ambience', 'event']), state: z.enum(['queued', 'running']), deadlineAt: nonnegative,
+	})).max(8).optional(),
 	listeners: z.array(z.object({state: z.enum(['playing', 'paused', 'expired']), lastConsumptionAgoSeconds: z.number()})).max(16),
 	error: z.string().max(8192).optional(),
 });

@@ -22,7 +22,7 @@ afterEach(async () => {
 
 async function setup(planner?: Planner) {
 	const directory = await mkdtemp(path.join(tmpdir(), 'soundscapes-session-'));
-	const config = {...readConfig({}), dataDirectory: directory, fixturePath: path.join(directory, 'fixture.wav')};
+	const config = {...readConfig({SOUND_ENABLED: 'false'}), dataDirectory: directory, fixturePath: path.join(directory, 'fixture.wav')};
 	await writeFile(config.fixturePath, 'fixture');
 	let now = 1000;
 	const renderers: Renderer[] = [];

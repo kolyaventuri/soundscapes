@@ -19,6 +19,12 @@ const environmentSchema = z.object({
 	EVENT_SKIP_PROBABILITY: z.coerce.number().min(0).max(1).default(0.25),
 	EVENT_DELAY_SCALE: z.coerce.number().min(0.05).max(10).default(1),
 	EVENT_DELAY_BUCKETS: z.string().optional(),
+	SOUND_ENABLED: z.enum(['true', 'false']).default('true'),
+	SOUND_PYTHON: z.string().min(1).default('models/sound-runtime/bin/python'),
+	SOUND_MODEL_MANIFEST: z.string().min(1).default('models/stable-audio-3-small-sfx/manifest.json'),
+	SOUND_DEVICE: z.enum(['cpu', 'mps']).default('cpu'),
+	SOUND_TIMEOUT_SECONDS: z.coerce.number().int().min(5).max(1800).default(300),
+	SOUND_IDLE_UNLOAD_SECONDS: z.coerce.number().int().min(0).max(1800).default(1800),
 });
 
 export const repositoryRoot = fileURLToPath(new URL('../../../', import.meta.url));
@@ -46,6 +52,12 @@ export function readConfig(environment: NodeJS.ProcessEnv = process.env) {
 		ffmpegPath: parsed.FFMPEG_PATH,
 		ffprobePath: parsed.FFPROBE_PATH,
 		idleTimeoutMs: parsed.IDLE_TIMEOUT_SECONDS * 1000,
+		sound: {
+			enabled: parsed.SOUND_ENABLED === 'true', python: path.resolve(repositoryRoot, parsed.SOUND_PYTHON),
+			manifest: path.resolve(repositoryRoot, parsed.SOUND_MODEL_MANIFEST), device: parsed.SOUND_DEVICE,
+			worker: path.join(repositoryRoot, 'workers/sound/worker.py'), output: path.join(dataDirectory, 'quarantine/sound'),
+			timeoutMs: parsed.SOUND_TIMEOUT_SECONDS * 1000, idleUnloadMs: parsed.SOUND_IDLE_UNLOAD_SECONDS * 1000,
+		},
 		planner: {
 			url: ollamaUrl.origin, model: parsed.OLLAMA_MODEL, timeoutMs: parsed.PLANNER_TIMEOUT_SECONDS * 1000, skipProbability: parsed.EVENT_SKIP_PROBABILITY, delayScale: parsed.EVENT_DELAY_SCALE,
 			delayBuckets: delayBucketsSchema.parse(parsed.EVENT_DELAY_BUCKETS ? JSON.parse(parsed.EVENT_DELAY_BUCKETS) : defaultDelayBuckets),

@@ -18,7 +18,10 @@
     "event:import": "node --import tsx src/cli/import-event.ts",
     "planner:smoke": "node --import tsx src/cli/planner-smoke.ts",
     "audio:phase3": "node --import tsx src/cli/phase3-smoke.ts",
-    "event:fixture": "node --import tsx src/cli/create-event-fixture.ts"
+    "event:fixture": "node --import tsx src/cli/create-event-fixture.ts",
+    "sound:setup": "node --import tsx src/cli/sound-setup.ts",
+    "sound:smoke": "node --import tsx src/cli/sound-smoke.ts",
+    "audio:phase4": "node --import tsx src/cli/phase4-smoke.ts"
   },
   "dependencies": {
     "@fastify/static": "^10.1.4",
