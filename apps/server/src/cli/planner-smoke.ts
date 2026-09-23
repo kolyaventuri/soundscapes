@@ -55,17 +55,32 @@ try {
 		assert.equal(proposal.category, 'wind');
 	}
 
+	const eventMs = performance.now() - eventStarted;
 	const generationStarted = performance.now();
-	const generatedProposal = await planner.propose({...context, canGenerate: true}, signal);
+	const generatedProposal = await planner.propose({
+		...context, canGenerate: true,
+		scene: {
+			...scene, originalPrompt: 'A quiet park at night. Very occasional distant footsteps on a gravel path beyond the trees. No voices or music.',
+			description: 'A quiet park with a distant gravel path where occasional gentle footsteps are welcome.', allowedEventCategories: ['distant-footsteps'],
+		},
+	}, signal);
 	if (generatedProposal.event !== null) {
 		assert.equal(generatedProposal.assetId, null);
-		assert.ok(scene.allowedEventCategories.includes(generatedProposal.category!));
+		assert.equal(generatedProposal.category, 'distant-footsteps');
 		assert.ok(generatedProposal.durationSeconds! >= 2);
 	}
 
+	const generationProposalMs = performance.now() - generationStarted;
+	const defaulted = await planner.parseScene('A sheltered woodland at night in autumn. Steady soft rain on leaves, mild temperature, no wind. '
+		+ 'No people, voices, music, animals, thunder or sharp sounds.', signal);
+	assert.equal(defaulted.year, null);
+	assert.equal(defaulted.simulatedStart, '2000-01-01T01:00:00Z');
+	assert.ok(!defaulted.allowedEventCategories.includes('distant-footsteps'));
+	assert.ok(!defaulted.allowedEventCategories.includes('insects'));
+	assert.ok(!defaulted.allowedEventCategories.includes('wind'));
 	const result = {
-		at: new Date().toISOString(), model: config.planner.model, sceneMs, nullMs, eventMs: performance.now() - eventStarted,
-		maximumModelBytes, maximumGpuBytes, scene, empty, proposal, generatedProposal, generationProposalMs: performance.now() - generationStarted,
+		at: new Date().toISOString(), model: config.planner.model, sceneMs, nullMs, eventMs,
+		maximumModelBytes, maximumGpuBytes, scene, empty, proposal, generatedProposal, generationProposalMs, defaulted,
 		note: 'Real local model calls. Memory is sampled Ollama-reported model/VRAM allocation, not total host usage or an overnight result.',
 	};
 	const directory = path.join(config.dataDirectory, 'planner-checks');

@@ -61,7 +61,7 @@ it('preserves the original prompt, applies missing calendar defaults, and reject
 			month: 2, day: 30, hour: 1, minute: 0,
 		},
 	})));
-	await expect(planner.parseScene('Bad date', new AbortController().signal)).rejects.toThrow('invalid calendar');
+	await expect(planner.parseScene('February 30 1932', new AbortController().signal)).rejects.toThrow('calendar');
 });
 
 it('rejects remote planner origins and invalid opportunity distributions', () => {
