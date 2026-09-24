@@ -118,7 +118,7 @@ Defaults work without an environment file. To customize, copy `.env.example` to 
 | `IDLE_TIMEOUT_SECONDS` | `90` | Time without successful current-run segment requests before a listener expires (10–300). |
 | `OLLAMA_URL` | `http://127.0.0.1:11434` | Loopback HTTP origin only; never a hosted inference endpoint. |
 | `OLLAMA_MODEL` | `qwen3:8b` | Downloaded local instruction model. |
-| `PLANNER_TIMEOUT_SECONDS` | `45` | Scene/event request deadline (1–120 seconds); failures do not stop active ambience. |
+| `PLANNER_TIMEOUT_SECONDS` | `45` | Scene/event request deadline (1–120 seconds). Layer planning allows twice this value, capped at 120 seconds. Failures do not stop active ambience. |
 | `EVENT_SKIP_PROBABILITY` | `0.25` | Intentional skip probability before invoking the model. |
 | `ASSET_REUSE_THRESHOLD` | `0.75` | Minimum event reuse score (0–1); context, acoustic-match and recent-use gates always apply. |
 | `EVENT_DELAY_SCALE` | `1` | Multiplier for opportunity delays (0.05–10); reduce only for development. |

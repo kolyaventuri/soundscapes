@@ -1,6 +1,6 @@
 # v0.1 verification record
 
-Phase 6 separates automated behavior, real local inference, and physical listening. Passing the first two does not complete v0.1. The remaining device, listening and multi-hour gates are in [PLAN.md](PLAN.md); advanced layering is a separate optional work item.
+Phase 6 separates automated behavior, real local inference, and physical listening. Passing the first two does not complete v0.1. The remaining device, listening and multi-hour gates are in [PLAN.md](PLAN.md); advanced layering is an optional prototype with its own listening and multi-hour gates.
 
 ## Repeatable checks
 
@@ -15,6 +15,8 @@ Run from the repository root with the shell-selected Node 24 and installed FFmpe
 | `pnpm audio:phase2` | Sustained fixture ambience, buffer/retention bounds and restart recovery. `AUDIO_TEST_SECONDS` can extend it; a short pass is not a multi-hour result. |
 | `pnpm audio:phase3` | Scripted event/null/failure decisions through real FFmpeg/HLS, sparse scheduling and persisted clock/history. |
 | `pnpm audio:phase4` | Scripted sound generation through real validation/mixing: four beds, failed/invalid outputs excluded, one generated event, reuse, restart and cancellation. |
+| `pnpm audio:layers` | Scripted layers through real HLS: independent starts/fades, exact chunk continuity, bounded background pools, cache reuse, required/optional failures, pause/watchdog cancellation and SQLite restoration. |
+| `pnpm audio:layers --real` | Actual Qwen-derived layer policies and Medium-generated isolated-source recordings through the same short HLS/restart check. Perceptual source isolation and musical coherence remain listening gates. |
 | `pnpm audio:level` | Both file and streamed PCM inputs: same-encoder level changes, mute, limiting and unchanged previously published segments. |
 | `pnpm lan:smoke` | Isolated HTTPS with verified trust/name, negative certificate checks, and the actual recorder CLI observing watchdog expiry without renewing demand. Temporary certificates never enter system trust. |
 | `pnpm planner:smoke` | Actual local Qwen scene constraints, null/library/generated proposals and model-allocation sampling. Requires the separate Ollama service. |
@@ -61,3 +63,35 @@ The fresh compiled production app served its static shell/API, initialized SQLit
 Follow [README's HTTPS recording procedure](README.md#record-an-unattended-playback-run) for the actual installed PWA. Supply the public mkcert CA through `NODE_EXTRA_CA_CERTS` and the explicit HTTPS origin; do not disable verification. Use default event cadence and the 90-second watchdog for overnight acceptance. Keep the Mac powered, awake and open, and freeze the build for the entire run.
 
 Before declaring v0.1 complete, record the exact build, iOS/browser and sleep-bud model, actual run duration, any audible gaps or level surprises, locked-screen controls, and the final recorder summary. User-reported installed PWA, locked-screen and Bluetooth playback already work. Bonjour hostname access and Safari's certificate warning still require a physical-device follow-up. Listening quality, musical continuity, comfortable adjustable level, measured multi-hour playback and the final eight-hour physical run remain open.
+
+## Automatic layered prototype — 2026-09-23
+
+The opt-in advanced mode uses one scene prompt. The local planner chooses the layer set, captions, relative gains and continuity policies; there is no manual track configuration. Layer clocks and random states are independent and persisted, while rendering still feeds one continuous AAC/HLS encoder. Preparation exposes per-layer counts and the existing measured estimate. Music/effects fade limits are enforced by the controller.
+
+`pnpm check` passes 102 tests, lint, strict types and production builds. The AAC smoke, lifecycle integration, Phase 2 mixer, mixer continuity, both level inputs, Phase 3 and Phase 4 checks also pass. `audio:layers` decodes 165 seconds with at least 89.9 seconds buffered, compares independently chunked output within one signed-16-bit PCM unit, restores the exact SQLite layer state, reuses initial pools and grows to 16 assets. Additional cases cover missing optional WAVs, optional-generation failure, required-music failure, initialization cancellation and background cancellation by both explicit pause and accelerated watchdog expiry. Eight hours of scheduler simulation stay below 40 retained intervals per layer; this is not eight hours of audio.
+
+Chrome testing used scripted planning/sound adapters with real FFmpeg to isolate the user flow: one prompt plus the advanced checkbox produced ten initial recordings across four layers. Native HLS advanced past 252.9 seconds, pause returned idle, resume continued, and Stop removed the player and layer summary. All pools grew to their bounds, and the 390×844 layout was inspected. No captured browser warnings/errors occurred. The temporary tab and server were closed. This is desktop browser evidence, not iPhone or listening acceptance.
+
+Real layered evidence is in `data/layer-checks/layers-GLRVvt/report.json`. Qwen split the café prompt into required espresso/room ambience, required jazz piano, required conversation and optional cup effects. Stable Audio 3 Medium MLX generated all ten initial recordings and six background variations, using isolated prompts and the shared room context. The 165-second HLS decode and restart passed, with a minimum buffer of 89.92 seconds and maximum whole-versus-chunk difference of one PCM unit.
+
+| Layered measurement | Observed result |
+| --- | --- |
+| Cold scene preparation | 360.0 seconds including scene/layer planning and ten initial recordings |
+| Individual sound inference | Ambience 30.7–40.7 s; music 39.4–46.0 s; activity 26.5–29.7 s; effects 5.5–7.8 s, across initial and background assets |
+| Full pool disk usage | 16 validated WAVs totaling 169.1 MiB; excludes model weights, database and check artifacts |
+| Decoded stream levels | −32.5 dBFS mean, −13.9 dBFS sample peak at default scene level |
+| Server / worker sampled RSS | Server up to 78.4 MiB; sound worker up to 3.53 GiB |
+| Worker-reported Metal peak | Up to 4.94 GiB for the 120-second music clips; a different measurement from RSS, not additive host usage |
+| Playback retention | At most 3 PCM chunks, 24 HLS files, 17.5 MiB of session files and 4/2/4/3 scheduled ambience/music/activity/effects intervals in the sampled window |
+
+Resource evidence is under `data/layer-checks/layers-GLRVvt/soaks/2026-09-23T23-43-22.916Z-3cBxO0/`. It collected 29 complete samples: 14 during initialization and 15 during active playback. Its exit code 2 is expected for this deliberately wider observation window: initialization is flagged as not active, and the final sample could not connect after the test server shut down. No active-playback buffer/stall/retention issues were flagged. This is a short cost observation, not a passing soak; it misses early preparation, brief subprocesses and external Ollama allocation. Other local checks shared the host, so timings are approximate observations rather than a controlled benchmark.
+
+Layering currently has conservative aggregate gain and can be quieter than a simple scene; listen on the actual device and use its immediate volume control or the shared Scene level setting. Source isolation, recognizable content, musical phrase/key/tempo transitions, repetition, comfortable levels and multi-hour playback remain unverified by human listening. These gates remain open in PLAN.md; the feature is a prototype and does not complete v0.1.
+
+Repeating the same café prompt with the real Qwen planner reused all ten initial layer recordings in 52.2 seconds with **zero sound-generation calls**, then stopped cleanly (`data/layer-checks/layers-GLRVvt/cache.json`). This cache-only probe rejects any attempt to generate audio. It used `PLANNER_TIMEOUT_SECONDS=90`; the default 45-second scene deadline had timed out once during the separate bulk planner regression. Production defaults are unchanged. A one-minute excerpt crossing the ambience/music transitions is available locally at `data/layer-checks/layers-GLRVvt/cafe-preview.m4a`, with the normal default stream gain/limiter applied.
+
+The complete real planner suite passes with the diagnostic 90-second scene/event deadline (`data/planner-checks/1790207887069.json`): café music is continuous, rain selects ambience only, and the live-band music layer has 15–45-second gaps. The earlier 45-second run timed out on the explicit sleep-off scene parse, not during playback. Layer planning allows twice the configured timeout, capped at 120 seconds.
+
+Planner semantics still need fidelity review: the live-band ambience caption included audience murmur/glass sounds that also appeared in activity/effects. Generation adds explicit exclusions for the other selected roles, but conflicting captions and actual model source leakage can still occur. The café plan used distinct source captions; this does not establish reliable isolation for every prompt. Treat source duplication as an open advanced-mode listening/prompt-fidelity item, alongside musical continuity.
+
+The separate `pnpm sound:smoke --scene` regression also passed four real 90-second beds, a generated 12-second event, normalization/progress reporting and exact-scene reuse (`data/sound-checks/1790207891786/scene.json`). All owned test servers and sound workers exited. The existing Ollama service remains on 11434. This task did not stop or restart the pre-existing app; at final cleanup its former PID 79631 and port 3443 listener were no longer present, so start the usual app server before testing.
