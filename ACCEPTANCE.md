@@ -1,6 +1,6 @@
 # v0.1 verification record
 
-Phase 6 separates automated behavior, real local inference, and physical listening. Passing the first two does not complete v0.1. The remaining device, listening and multi-hour gates are in [PLAN.md](PLAN.md); advanced layering is an optional prototype with its own listening and multi-hour gates.
+Phase 6 separates automated behavior, real local inference, and physical listening. Passing the first two does not complete v0.1. The measured eight-hour laptop soak passed for layered ambience/effects playback on 2026-09-24; remaining device and listening gates are in [PLAN.md](PLAN.md). Advanced layering is an optional prototype with separate fidelity acceptance.
 
 ## Repeatable checks
 
@@ -64,7 +64,7 @@ The fresh compiled production app served its static shell/API, initialized SQLit
 
 Follow [README's HTTPS recording procedure](README.md#record-an-unattended-playback-run) for the actual installed PWA. Supply the public mkcert CA through `NODE_EXTRA_CA_CERTS` and the explicit HTTPS origin; do not disable verification. Use default event cadence and the 90-second watchdog for overnight acceptance. Keep the Mac powered, awake and open, and freeze the build for the entire run.
 
-Before declaring v0.1 complete, record the exact build, iOS/browser and sleep-bud model, actual run duration, any audible gaps or level surprises, locked-screen controls, and the final recorder summary. User-reported installed PWA, locked-screen and Bluetooth playback already work. Bonjour hostname access and Safari's certificate warning still require a physical-device follow-up. Listening quality, musical continuity, comfortable adjustable level, measured multi-hour playback and the final eight-hour physical run remain open.
+Before declaring v0.1 complete, record the exact build, iOS/browser and sleep-bud model, actual run duration, any audible gaps or level surprises, locked-screen controls, and the final recorder summary. User-reported installed PWA, locked-screen and Bluetooth playback already work. Bonjour hostname access and Safari's certificate warning still require a physical-device follow-up. The measured eight-hour laptop soak below closes the server streaming/resource check for its layered ambience/effects scene. Listening quality, musical continuity, comfortable adjustable level and the final eight-hour physical run remain open; long-run inference was not exercised.
 
 ## Automatic layered prototype — 2026-09-23
 
@@ -136,3 +136,26 @@ The user reports that overnight playback worked fine and the session paused when
 No soak recorder was running. Starting a separate script and obtaining a session ID from the PWA was impractical with the laptop across the house. Add recording controls to the PWA, automatically attached to its current session, before asking for another unattended measured run. Diagnostic collection must remain passive and must not keep playback active.
 
 This report does not establish eight hours of active playback or measured memory, disk, CPU/GPU, buffer and segment-retention trends. Those formal gates remain open separately from the accepted listening check. The earlier eight-minute interrupted recorder artifact is not evidence for this run. Exact build, scene/session ID, iOS version and sleep-bud model were not supplied for this report; no new automated or physical-device tests were performed while recording it.
+
+## Eight-hour laptop soak — 2026-09-24
+
+**Passed measured laptop streaming/resource acceptance.** The recorder completed eight hours from `2026-09-24T13:09:36.199Z` through `2026-09-24T21:09:36.200Z`, with **961/961 complete samples, all active, and zero recorded issues**. Reviewed `manifest.json`, `summary.json`, `summary.md`, `events.jsonl` and all 961 samples across both retained sample logs under `data/soaks/2026-09-24T13-09-36.252Z-OoMpeP/`.
+
+The laptop browser consumed session `aedb1c33-5dac-4af0-a216-e1812635041d` over `http://127.0.0.1:3000`. Its layered crypt scene had four generated ambience recordings and six effect recordings. The recorder checkout was clean at `9e09593c8669edfc1cdaf3da09a93e16cfb0bb94`; Node was 24.12.0, FFmpeg 9.0.2, macOS kernel 25.3.0, arm64. The built entry modification time was `2026-09-24T03:37:22.360Z`; the recorded source revision does not certify which source built the running server. Browser/version was not recorded.
+
+| Observation | Recorded result |
+| --- | --- |
+| Continuity | One server instance/PID, producer PID and encoder run throughout; cursor advanced 28,800.029 seconds; no sampled stalls, idle transitions, restarts, request errors or truncated disk scans |
+| Listener demand | One active listener throughout; maximum sampled age of its last consumption was 6.01 seconds |
+| Render buffer | 106.53–108.33 seconds |
+| Server memory | RSS 148.70 → 86.47 MiB, peak 154.28 MiB; hourly mean heap 25.01 → 25.45 MiB |
+| Encoder memory | FFmpeg RSS 21.98–24.48 MiB |
+| CPU | Server mean 0.48%, peak 0.76%; FFmpeg platform estimate mean 3.27%, peak 5.10% |
+| Session storage | At most 19.07 MiB and 45 files; HLS at most 40 files / 3.93 MiB; stable after initial retention fill |
+| PCM queue | Exactly three chunks/files in every sample, totaling 15.14 MiB on disk |
+| Layer retention | Ambience 10–11 scheduled clips, effects 6–10; oldest retained clip starts advance by about eight hours, confirming pruning; pools remain at four/six assets |
+| Sampling | 30-second cadence, maximum gap 30.004 seconds; one sample-log rotation, all 961 raw samples retained |
+
+No planner requests, generation queue items or loaded sound worker were observed. This measures sustained reuse, independent layer scheduling, mixing, encoding and stream consumption; it does not exercise continuous model inference, the simple-mode event planner, music/activity layers, or their resource costs. The recorder excludes reusable assets/database from session-disk totals, and does not measure browser memory or external Ollama/GPU allocation. Periodic samples can miss brief peaks or interruptions; stream consumption does not prove gap-free audible output.
+
+The user reports completion of the laptop run. Eight-hour iPhone/locked-screen/Bluetooth endurance and remaining listening-quality checks stay open, separately from the earlier accepted 63-minute sleep-bud use check. This review changed documentation only and did not restart or stop the user's playback/server.
