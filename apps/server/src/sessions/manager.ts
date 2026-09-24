@@ -884,6 +884,7 @@ export class SessionManager {
 						}, progress);
 						signal.throwIfAborted();
 						layer.assetIds.push(asset.id);
+						layer.warning = asset.generation?.warning ?? layer.warning;
 						session.assetIds = session.layered.layers.flatMap(item => item.assetIds);
 						progress.completedBeds = session.layered.layers.reduce((sum, item) => sum + Math.min(item.assetIds.length, poolSize(item.policy.id).initial), 0);
 						this.onEvent('layer-prepared', session.id, `${layer.policy.id}: ${layer.assetIds.length}/${initial}`);
@@ -938,6 +939,10 @@ export class SessionManager {
 				}
 
 				layer.assetIds.push(asset.id);
+				if (asset.generation?.warning) {
+					layer.warning = asset.generation.warning;
+				}
+
 				session.assetIds.push(asset.id);
 				session.layerAssets.push(asset);
 				this.onEvent('layer-pool-expanded', session.id, `${layer.policy.id}: ${layer.assetIds.length}`);

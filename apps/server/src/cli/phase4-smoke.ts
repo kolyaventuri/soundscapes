@@ -58,7 +58,7 @@ const generator: SoundGenerator = {
 				'-f',
 				'lavfi',
 				'-i',
-				`anoisesrc=color=pink:amplitude=0.1:sample_rate=44100:duration=${request.durationSeconds}:seed=${request.seed}`,
+				`anoisesrc=color=pink:amplitude=${request.kind === 'ambience' && beds === 1 ? 0.000_01 : 0.1}:sample_rate=44100:duration=${request.durationSeconds}:seed=${request.seed}`,
 				'-af',
 				'lowpass=f=1000',
 				'-ac',
@@ -108,6 +108,8 @@ try {
 	const {session, listenerId, streamUrl} = manager.create('ambience', prompt);
 	await manager.play(session.id, listenerId);
 	assert.equal(beds, 4);
+	const quietBed = store.assets().find(asset => asset.generation?.warning);
+	assert.ok(quietBed && quietBed.meanDb < -38 && quietBed.peakDb <= -18, 'Quiet valid audio must be retained with bounded gain and a warning');
 	assert.equal(manager.get(session.id).audioSource, 'generated');
 	let minimum = 180;
 	const monitor = setInterval(() => {

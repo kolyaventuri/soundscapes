@@ -54,3 +54,15 @@ it('requires explicit context for imported transport and bounds saved variation 
 		expect(scheduledEventSchema.safeParse({...base, ...changed}).success).toBe(false);
 	}
 });
+
+it.each(['levels-v1', 'levels-v2'])('reuses generated events with %s validation and advisory levels', validation => {
+	const generated = assetSchema.parse({
+		...asset, meanDb: -42.4, peakDb: -25.1,
+		event: {...asset.event!, reviewedSleepSafe: false},
+		generation: {
+			model: 'test', revision: 'test', seed: 1, prompt: 'wind', sceneKey: 'a'.repeat(64), assetKey: 'b'.repeat(64),
+			createdAt: new Date(now).toISOString(), validation, elapsedMs: 1, warning: 'Kept with peak protection',
+		},
+	});
+	expect(eligibleAssets([generated], scene, [], 0)).toEqual([generated]);
+});

@@ -898,6 +898,8 @@ Optional:
 * true-peak limiting;
 * scene-level target loudness.
 
+Loudness and peak-to-average targets are guidance, not rejection criteria. Preserve usable generated recordings after normalization and peak limiting, even when sparse sounds miss those targets; retain measured levels and show an advisory warning. Prefer reduced track volume over discarding a result. Malformed or non-finite audio remains invalid.
+
 No AI-generated asset should enter the stream unprocessed.
 
 ---

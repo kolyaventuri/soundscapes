@@ -215,7 +215,7 @@ export class GenerationService {
 				? z.object({revision: z.string(), runtimeRevision: z.string().optional()}).parse(JSON.parse(await readFile(this.config.sound.manifest, 'utf8')))
 				: {revision: 'injected-adapter'};
 			return JSON.stringify({
-				model: this.config.sound.model, device: this.config.sound.device, ...manifest, prompt: 'scene-v2', levels: 'levels-v1',
+				model: this.config.sound.model, device: this.config.sound.device, ...manifest, prompt: 'scene-v2', levels: 'levels-v2',
 			});
 		})();
 		return this.profile;
@@ -241,8 +241,8 @@ export class GenerationService {
 		const analysis = await run(this.config.ffmpegPath, ['-hide_banner', '-nostdin', '-xerror', '-i', expected, '-af', 'astats=reset=0,volumedetect', '-f', 'null', '-']);
 		const meanDb = Number(/mean_volume: (-?[\d.]+) dB/.exec(analysis.stderr)?.[1]);
 		const invalid = [...analysis.stderr.matchAll(/Number of (?:NaNs|Infs): ([\d.]+)/g)].some(match => Number(match[1]) > 0);
-		if (!Number.isFinite(meanDb) || meanDb < -65 || invalid) {
-			throw new Error('Generated output is silent, invalid or non-finite');
+		if (!Number.isFinite(meanDb) || invalid) {
+			throw new Error('Generated output is invalid or non-finite');
 		}
 
 		const file = `assets/${request.kind === 'ambience' ? 'ambience' : 'events'}/${request.id}.wav`;
@@ -261,7 +261,7 @@ export class GenerationService {
 				'-i',
 				expected,
 				'-af',
-				`volume=${mean - meanDb + attenuation}dB,alimiter=limit=0.125:level=false:attack=5:release=50:latency=true,volume=${-attenuation}dB`,
+				`volume=${Math.min(30, mean - meanDb) + attenuation}dB,alimiter=limit=0.125:level=false:attack=5:release=50:latency=true,volume=${-attenuation}dB`,
 				'-ar',
 				'44100',
 				'-ac',
@@ -272,7 +272,7 @@ export class GenerationService {
 			]);
 			let levels = await measure(temporary, this.config);
 			// Limiting a highly uneven source can lower its RMS. Permit one bounded
-			// correction, then enforce the same limits; don't keep amplifying silence.
+			// correction, then keep the peak-limited result even if RMS misses its target.
 			const correction = mean - levels.meanDb;
 			if (correction > 1 && correction <= 6) {
 				await run(this.config.ffmpegPath, [
@@ -293,16 +293,16 @@ export class GenerationService {
 			}
 
 			signal.throwIfAborted();
-			if (Math.abs(levels.meanDb - mean) > 2 || levels.peakDb - levels.meanDb > (request.kind === 'ambience' ? 20 : 16)) {
-				throw new Error(`Generated output failed loudness or transient limits (mean ${levels.meanDb} dBFS, peak ${levels.peakDb} dBFS)`);
-			}
+			const warning = Math.abs(levels.meanDb - mean) > 2 || levels.peakDb - levels.meanDb > (request.kind === 'ambience' ? 20 : 16)
+				? 'This recording was kept with peak protection, but may sound quieter or more dynamic than the target.'
+				: undefined;
 
 			const asset = assetSchema.parse({
 				id: request.id, kind: request.kind, title: metadata.title, file, ...levels, affinity: metadata.affinity,
 				source: `${audio.model} ${audio.revision}; automated level checks; listening acceptance pending`,
 				generation: {
 					...metadata, model: audio.model, revision: audio.revision, seed: request.seed, prompt: request.prompt,
-					createdAt: new Date().toISOString(), validation: 'levels-v1', elapsedMs: audio.elapsedMs,
+					createdAt: new Date().toISOString(), validation: 'levels-v2', warning, elapsedMs: audio.elapsedMs,
 				},
 				...(metadata.category ? {event: {category: metadata.category, tags: [...new Set([metadata.category, ...audioTags(metadata.title)])].slice(0, 12), reviewedSleepSafe: false}} : {}),
 			});

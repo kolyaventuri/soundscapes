@@ -25,6 +25,7 @@ export type SoundGenerator = {
 };
 export const generationMetadataSchema = z.object({
 	model: z.string().max(120), revision: z.string().max(64), seed: z.number().int(), prompt: z.string().max(6000),
-	sceneKey: z.string().length(64), assetKey: z.string().length(64), createdAt: z.iso.datetime(), validation: z.literal('levels-v1'),
+	sceneKey: z.string().length(64), assetKey: z.string().length(64), createdAt: z.iso.datetime(), validation: z.enum(['levels-v1', 'levels-v2']),
+	warning: z.string().max(300).optional(),
 	variant: z.number().int().min(0).max(5).optional(), layerId: layerIdSchema.optional(), category: eventCategorySchema.optional(), elapsedMs: z.number().nonnegative(),
 });

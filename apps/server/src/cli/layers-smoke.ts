@@ -65,7 +65,7 @@ const generator: SoundGenerator = {
 			'-i',
 			`anoisesrc=color=pink:amplitude=0.1:sample_rate=44100:duration=${request.durationSeconds}:seed=${request.seed}`,
 			'-af',
-			'lowpass=f=1000',
+			request.kind === 'event' ? 'lowpass=f=1000,volume=\'if(lt(mod(t,2),0.02),1,0)\':eval=frame' : 'lowpass=f=1000',
 			'-ac',
 			'2',
 			'-c:a',
@@ -153,6 +153,15 @@ try {
 	const {layers} = manager!.debug(owner.session.id);
 	assert.ok(layers.some(layer => layer.id === 'music') && layers.some(layer => layer.id === 'activity'));
 	assert.ok(layers.every(layer => layer.state === 'ready' || (!layer.required && layer.state === 'unavailable')));
+	if (!real) {
+		const effects = layers.find(layer => layer.id === 'effects');
+		assert.equal(effects?.state, 'ready', 'Sparse effects must remain playable');
+		assert.match(effects?.warning ?? '', /kept with peak protection/);
+		const recordings = store!.assets().filter(asset => asset.generation?.layerId === 'effects');
+		assert.equal(recordings.length, 2);
+		assert.ok(recordings.every(asset => asset.peakDb <= -25 && asset.generation?.warning));
+	}
+
 	let minimum = 180;
 	const samples: unknown[] = [];
 	const monitor = setInterval(() => {
@@ -208,6 +217,7 @@ try {
 	await manager!.play(owner.session.id, owner.listenerId);
 	report.resumeMs = Date.now() - resumeStarted;
 	await decode(owner.streamUrl, 2);
+	assert.deepEqual(store!.assets(), assets, 'Level warnings and measurements must survive restart');
 	assert.equal(store!.assets().length, assets.length, 'Resume must not regenerate the world');
 	assert.equal(generated, generatedBefore);
 	await manager!.pause(owner.session.id, owner.listenerId);

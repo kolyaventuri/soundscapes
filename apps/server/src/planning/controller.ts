@@ -21,7 +21,8 @@ type Options = {
 
 export function eligibleAssets(assets: Asset[], scene: Scene, history: ScheduledEvent[], elapsedMs: number) {
 	const recent = history.filter(event => event.startMs + event.durationMs >= elapsedMs - (30 * 60_000));
-	return assets.filter(asset => asset.kind === 'event' && asset.event && (asset.event.reviewedSleepSafe || asset.generation?.validation === 'levels-v1')
+	return assets.filter(asset => asset.kind === 'event' && asset.event
+		&& (asset.event.reviewedSleepSafe || asset.generation?.validation === 'levels-v1' || asset.generation?.validation === 'levels-v2')
 		&& contextCompatible(asset, scene)
 		&& scene.allowedEventCategories.includes(asset.event.category)
 		&& !explicitlyExcluded(scene.originalPrompt, asset.event.category)
