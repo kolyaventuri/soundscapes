@@ -327,6 +327,15 @@ This read-only command works with the server running or stopped. It shows your o
 
 `--latest` selects the most recently created saved session (not the most recently resumed); use it instead of a session ID. It also works with `--json` and `--data-dir`.
 
+Each recording has a short **WAV number** (also `wavNumber` in JSON). Play one directly:
+
+```sh
+pnpm wav:play --session YOUR_SESSION_UUID --wav 42
+pnpm wav:play --latest --wav 42
+```
+
+Replace `42` with a number from the report. Numbers use the asset’s SQLite row ID, so background pool growth does not renumber existing clips; regenerate the report after rebuilding the database. The player verifies that the WAV belongs to the selected session, prints the selected file, and plays that normalized, unmixed recording through `afplay` on macOS (`ffplay` elsewhere). Ctrl-C stops it. Add `--print-path` to resolve a file without playback, or `--data-dir PATH` for another database. This does not start, pause or keep alive the streaming session. Prefer an explicit session ID when comparing clips; `--latest` can select another session after one is created.
+
 The report reflects persisted state, not a complete inference transcript. Raw LLM messages and rejected/pre-normalization audio are not retained. Explicitly stopped sessions may no longer exist in the database.
 
 ## Record an unattended playback run
