@@ -2,8 +2,11 @@ import {z} from 'zod';
 
 export const generationModeSchema = z.enum(['simple', 'layered']);
 export const layerIdSchema = z.enum(['ambience', 'music', 'activity', 'effects']);
+// Four source names (60) + captions (240) + separators need up to 1,211 characters.
+// This is the compiled layer budget, not the audio model's token context length.
+export const layerPromptMaxLength = 1250;
 export const layerPolicySchema = z.strictObject({
-	id: layerIdSchema, title: z.string().trim().min(1).max(80), prompt: z.string().trim().min(1).max(500), required: z.boolean(),
+	id: layerIdSchema, title: z.string().trim().min(1).max(80), prompt: z.string().trim().min(1).max(layerPromptMaxLength), required: z.boolean(),
 	playback: z.enum(['continuous', 'gapped', 'sparse']),
 	gapSeconds: z.strictObject({minimum: z.number().int().min(0).max(300), maximum: z.number().int().min(0).max(600)}),
 	fadeSeconds: z.number().min(0.5).max(15), gain: z.number().min(0.05).max(1), variability: z.number().min(0).max(0.3),

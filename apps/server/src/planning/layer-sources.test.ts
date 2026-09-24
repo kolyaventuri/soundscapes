@@ -1,4 +1,8 @@
 import {expect, it} from 'vitest';
+import {layerPolicySchema, sceneSchema} from '@soundscapes/shared';
+import {createLayeredState, layeredStateSchema} from '../layers/timeline.js';
+import {layerSoundPrompt} from '../generation/service.js';
+import {soundRequestSchema} from '../generation/contracts.js';
 import {compileLayerSources} from './layer-sources.js';
 
 const inventory = {
@@ -36,6 +40,27 @@ it('supports gapped songs and keeps implicit room tone below requested sources',
 	expect(compileLayerSources(sparse).layers).toHaveLength(1);
 });
 
-it('rejects oversized combined captions rather than silently truncating requested sources', () => {
-	expect(() => compileLayerSources({...inventory, continuousEnvironment: ['rain', 'surf', 'wind'].map(name => ({name, caption: 's'.repeat(240), prominence: 'background'}))})).toThrow();
+it('preserves four maximum-sized sources through compilation, saved state and the sound request', () => {
+	const sources = ['rain', 'surf', 'wind', 'leaves'].map(name => ({name: name.padEnd(60, 'n'), caption: name.padEnd(240, 'c'), prominence: 'background'}));
+	const plan = compileLayerSources({...inventory, continuousEnvironment: sources, occasionalEffects: sources});
+	const saved = JSON.stringify(createLayeredState(plan, 42));
+	const restored = layeredStateSchema.parse(JSON.parse(saved));
+	const scene = sceneSchema.parse({
+		title: 'Four sources', originalPrompt: 'Four sources', sleepMode: false, simulatedStart: '2000-01-01T01:00:00Z',
+	});
+	for (const id of ['ambience', 'effects']) {
+		const policy = restored.plan.layers.find(layer => layer.id === id)!;
+		expect(policy.prompt).toHaveLength(1211);
+		expect(policy.prompt).toBe(sources.map(source => `${source.name}. ${source.caption}`).join(' '));
+		const prompt = layerSoundPrompt(scene, plan, policy);
+		expect(prompt).toContain(policy.prompt);
+		expect(soundRequestSchema.shape.prompt.parse(prompt)).toBe(prompt);
+	}
+});
+
+it('keeps source and compiled layer inputs bounded', () => {
+	expect(() => compileLayerSources({...inventory, continuousEnvironment: [{name: 'Rain', caption: 'x'.repeat(241), prominence: 'background'}]})).toThrow();
+	expect(() => compileLayerSources({...inventory, continuousEnvironment: Array.from({length: 5}, () => inventory.continuousEnvironment[0])})).toThrow();
+	const policy = compileLayerSources(inventory).layers[0]!;
+	expect(() => layerPolicySchema.parse({...policy, prompt: 'x'.repeat(1251)})).toThrow();
 });

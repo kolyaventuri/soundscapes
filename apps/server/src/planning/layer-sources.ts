@@ -25,7 +25,7 @@ const acoustics = {
 function sourcePolicy(id: LayerPolicy['id'], sources: Source[], continuous: boolean): LayerPolicy {
 	return {
 		id, title: sources.map(source => source.name).join(' · ').slice(0, 80) || 'Quiet acoustic space',
-		// Never truncate: failing validation is preferable to silently losing a requested source.
+		// The shared layer budget accommodates all four bounded sources without truncation.
 		prompt: sources.map(source => `${source.name}. ${source.caption}`).join(' ') || 'Faint steady air in a quiet acoustic space.',
 		required: id !== 'effects', playback: continuous ? 'continuous' : (id === 'effects' ? 'sparse' : 'gapped'),
 		gapSeconds: continuous ? {minimum: 0, maximum: 0} : (id === 'effects' ? {minimum: 45, maximum: 120} : {minimum: 15, maximum: 45}),

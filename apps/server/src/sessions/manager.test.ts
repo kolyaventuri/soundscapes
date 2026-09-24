@@ -4,7 +4,9 @@ import {
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
-import {listenerSessionSchema, sceneSchema, sessionListSchema} from '@soundscapes/shared';
+import {
+	listenerSessionSchema, sceneSchema, sessionListSchema, layerPlanSchema,
+} from '@soundscapes/shared';
 import {
 	afterEach, expect, it, vi,
 } from 'vitest';
@@ -190,6 +192,30 @@ it('cancels scene initialization immediately on Stop without starting audio', as
 	expect(stopped.status).toBe('stopped');
 	expect(factory).not.toHaveBeenCalled();
 	expect(manager.debug(session.id).rendering).toBe(false);
+});
+
+it('reports layer validation failures as planning errors rather than broken sound setup', async () => {
+	const planner: Planner = {
+		busy: false,
+		async parseScene(originalPrompt) {
+			return sceneSchema.parse({
+				title: 'Layer test', originalPrompt, sleepMode: false, simulatedStart: '2000-01-01T01:00:00Z',
+			});
+		},
+		async planLayers() {
+			return layerPlanSchema.parse({});
+		},
+		propose: vi.fn(),
+	};
+	const {manager, config, factory} = await setup(planner);
+	config.sound.enabled = true;
+	const {session} = manager.create('ambience', 'Distant rain, wind and leaves', false, 'layered');
+	await vi.waitFor(() => {
+		expect(manager.get(session.id).status).toBe('error');
+	});
+	expect(manager.get(session.id).error).toContain('scene planner');
+	expect(manager.get(session.id).error).not.toMatch(/sound:setup|sound:smoke|Zod|too_big/);
+	expect(factory).not.toHaveBeenCalled();
 });
 
 it('exposes live preparation without renewing a listener and resumes cancelled preparation in place', async () => {

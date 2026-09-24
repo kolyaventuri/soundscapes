@@ -830,11 +830,16 @@ export class SessionManager {
 			listener.state = 'paused';
 		}
 
-		session.error = session.sceneReady
-			? (session.generationEnabled
-				? `Scene audio preparation failed. Check pnpm sound:setup and pnpm sound:smoke, then create a new session. ${String(error).slice(0, 300)}`
-				: 'Audio could not be prepared. Run pnpm fixture:create or pnpm ambience:create, then pnpm audio:smoke, then create a new session.')
-			: `Scene planning failed. Start the local Ollama server, pull ${this.config.planner.model}, and try again. ${String(error).slice(0, 300)}`;
+		if (session.sceneReady && session.generationMode === 'layered' && !session.layered) {
+			session.error = 'The scene planner could not prepare the audio layers. Try creating the scene again. If it keeps failing, check the server logs for layer planning details.';
+		} else {
+			session.error = session.sceneReady
+				? (session.generationEnabled
+					? `Scene audio preparation failed. Check pnpm sound:setup and pnpm sound:smoke, then create a new session. ${String(error).slice(0, 300)}`
+					: 'Audio could not be prepared. Run pnpm fixture:create or pnpm ambience:create, then pnpm audio:smoke, then create a new session.')
+				: `Scene planning failed. Start the local Ollama server, pull ${this.config.planner.model}, and try again. ${String(error).slice(0, 300)}`;
+		}
+
 		this.onEvent('renderer-error', session.id, String(error));
 		this.transition(session, 'error');
 	}
