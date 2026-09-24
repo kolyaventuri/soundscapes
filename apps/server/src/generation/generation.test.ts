@@ -8,7 +8,7 @@ import {
 } from 'vitest';
 import {sceneSchema} from '@soundscapes/shared';
 import {readConfig} from '../config.js';
-import {soundPrompt, generationAssetKey} from './service.js';
+import {layerSoundPrompt, soundPrompt, generationAssetKey} from './service.js';
 import {type GeneratedAudio, type SoundGenerator, type SoundRequest} from './contracts.js';
 import {GenerationQueue} from './queue.js';
 import {PythonSoundGenerator} from './python.js';
@@ -202,4 +202,22 @@ it('reports a stage-releasing worker as unloaded while retaining its process', a
 	await generator.generate(request('event', 'released'), new AbortController().signal);
 	expect(generator.diagnostics()).toMatchObject({loaded: false, busy: false});
 	expect(generator.diagnostics().pid).not.toBeNull();
+});
+
+it('conditions layered music on its own caption without bringing back the whole scene', () => {
+	const scene = sceneSchema.parse({
+		title: 'Beach restaurant', originalPrompt: 'Restaurant with waves, diners and Caribbean music.', sleepMode: false, simulatedStart: '2000-01-01T01:00:00Z',
+	});
+	const policy = {
+		id: 'music' as const, title: 'Caribbean', prompt: 'Instrumental Caribbean music with steel pan and syncopated percussion.', required: true,
+		playback: 'continuous' as const, gapSeconds: {minimum: 0, maximum: 0}, fadeSeconds: 3, gain: 0.7, variability: 0.08,
+	};
+	const plan = {acoustics: 'Open-air stereo recording.', layers: [policy]};
+	const prompt = layerSoundPrompt(scene, plan, policy);
+	expect(prompt).toBe(`${policy.prompt} Clear stereo music recording.`);
+	expect(prompt).not.toMatch(/restaurant|waves|diners|exclude/i);
+	expect(layerSoundPrompt({...scene, sleepMode: true, constraints: ['No drums']}, plan, policy)).toContain('Gentle dynamics');
+	expect(layerSoundPrompt({...scene, constraints: ['No drums']}, plan, policy)).toContain('No drums');
+	const oldKey = generationAssetKey(scene, 'profile', {kind: 'ambience', durationSeconds: 120, prompt: `${prompt} Beach restaurant with gulls.`});
+	expect(generationAssetKey(scene, 'profile', {kind: 'ambience', durationSeconds: 120, prompt})).not.toBe(oldKey);
 });

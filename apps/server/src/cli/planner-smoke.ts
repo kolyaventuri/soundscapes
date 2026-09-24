@@ -1,13 +1,36 @@
 import assert from 'node:assert/strict';
 import {mkdir} from 'node:fs/promises';
 import path from 'node:path';
+import process from 'node:process';
+import {sceneSchema} from '@soundscapes/shared';
+import {explicitSoundConstraints} from '../planning/scene-constraints.js';
 import {loadEnvironment, readConfig} from '../config.js';
 import {OllamaPlanner} from '../planning/ollama.js';
 import {writeJson} from '../monitoring/storage.js';
+import {checkLayerPlans, cafePrompt, rainPrompt} from './layer-regression.js';
 
 loadEnvironment();
 const config = readConfig();
 const planner = new OllamaPlanner(config.planner);
+// Focused rerun for layer-caption/policy iterations; the default still exercises
+// the full parser/event suite before running these same layer assertions.
+if (process.argv.includes('--layers')) {
+	const scene = (originalPrompt: string) => sceneSchema.parse({
+		title: 'Layer regression', originalPrompt, sleepMode: false, constraints: explicitSoundConstraints(originalPrompt), simulatedStart: '2000-01-01T01:00:00Z',
+	});
+	const started = performance.now();
+	const plans = await checkLayerPlans(planner, new AbortController().signal, scene(cafePrompt), scene(rainPrompt));
+	const directory = path.join(config.dataDirectory, 'planner-checks');
+	await mkdir(directory, {recursive: true});
+	const file = path.join(directory, `${Date.now()}-layers.json`);
+	await writeJson(file, {
+		at: new Date().toISOString(), model: config.planner.model, elapsedMs: performance.now() - started, ...plans,
+	});
+	console.log(`PASS: real cafe/rain/band/beach layer coverage, isolation, continuity and beach balance. Evidence: ${file}`);
+	// eslint-disable-next-line unicorn/no-process-exit -- Completed CLI subcommand; all requests and file writes are awaited.
+	process.exit(0);
+}
+
 let maximumModelBytes = 0;
 let maximumGpuBytes = 0;
 let polling = false;
@@ -71,14 +94,13 @@ try {
 	}
 
 	const generationProposalMs = performance.now() - generationStarted;
-	const defaulted = await planner.parseScene('A sheltered woodland at night in autumn. Steady soft rain on leaves, mild temperature, no wind. '
-		+ 'No people, voices, music, animals, thunder or sharp sounds.', signal);
+	const defaulted = await planner.parseScene(rainPrompt, signal);
 	assert.equal(defaulted.year, null);
 	assert.equal(defaulted.simulatedStart, '2000-01-01T01:00:00Z');
 	assert.ok(!defaulted.allowedEventCategories.includes('distant-footsteps'));
 	assert.ok(!defaulted.allowedEventCategories.includes('insects'));
 	assert.ok(!defaulted.allowedEventCategories.includes('wind'));
-	const cafe = await planner.parseScene('Inside a busy cafe: espresso machine, clinking cups, indistinct crowd conversation and soft jazz piano played in the room.', signal);
+	const cafe = await planner.parseScene(cafePrompt, signal);
 	assert.equal(cafe.sleepMode, false);
 	assert.match(cafe.audioPrompt, /piano|jazz/i);
 	assert.match(cafe.audioPrompt, /crowd|conversation|chatter|murmur/i);
@@ -90,17 +112,11 @@ try {
 	const awakeCafe = await planner.parseScene('A cafe with jazz piano and crowd murmur, a place to fall asleep.', signal, false);
 	assert.equal(awakeCafe.sleepMode, false);
 	assert.deepEqual(awakeCafe.constraints, []);
-	const layeredCafe = await planner.planLayers(cafe, signal);
-	assert.deepEqual(layeredCafe.layers.map(layer => layer.id), ['ambience', 'music', 'activity', 'effects']);
-	assert.equal(layeredCafe.layers.find(layer => layer.id === 'music')?.playback, 'continuous');
-	const layeredRain = await planner.planLayers(defaulted, signal);
-	assert.deepEqual(layeredRain.layers.map(layer => layer.id), ['ambience']);
-	const layeredBand = await planner.planLayers({...cafe, originalPrompt: 'A live jazz band in a small club, with pauses between songs and a murmuring audience.'}, signal);
-	assert.equal(layeredBand.layers.find(layer => layer.id === 'music')?.playback, 'gapped');
-	assert.ok(layeredBand.layers.some(layer => layer.id === 'activity'));
+	const {layeredCafe, layeredRain, layeredBand, layeredBeach} = await checkLayerPlans(planner, signal, cafe, defaulted);
 	const result = {
 		at: new Date().toISOString(), model: config.planner.model, sceneMs, nullMs, eventMs,
-		maximumModelBytes, maximumGpuBytes, scene, empty, proposal, generatedProposal, generationProposalMs, defaulted, cafe, sleepCafe, awakeCafe, layeredCafe, layeredRain, layeredBand,
+		maximumModelBytes, maximumGpuBytes, scene, empty, proposal, generatedProposal, generationProposalMs,
+		defaulted, cafe, sleepCafe, awakeCafe, layeredCafe, layeredRain, layeredBand, layeredBeach,
 		note: 'Real local model calls. Memory is sampled Ollama-reported model/VRAM allocation, not total host usage or an overnight result.',
 	};
 	const directory = path.join(config.dataDirectory, 'planner-checks');

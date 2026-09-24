@@ -40,9 +40,14 @@ export function generationAssetKey(scene: Scene, profile: string, description: {
 	}));
 }
 
-const layerSources = {
-	ambience: 'environmental bed noise', music: 'music', activity: 'voices and crowd conversation', effects: 'discrete foreground effects',
-};
+export function layerSoundPrompt(scene: Scene, plan: LayerPlan, policy: LayerPolicy) {
+	return [policy.prompt,
+		// Background placement is a mix policy. Condition music on a clear musical
+		// recording, not a restaurant/field recording that can regenerate the crowd.
+		policy.id === 'music' ? 'Clear stereo music recording.' : plan.acoustics,
+		...(scene.sleepMode ? ['Gentle dynamics, smooth beginning and ending.'] : []),
+		...scene.constraints].join(' ').slice(0, 6000);
+}
 
 type Owner = {sessionId: string; signal: AbortSignal; valid: () => boolean; deadlineAt?: number};
 export class GenerationService {
@@ -131,12 +136,7 @@ export class GenerationService {
 		return this.obtain(scene, {
 			kind: policy.id === 'effects' ? 'event' : 'ambience', durationSeconds: clipSeconds(policy.id), variant, layerId: policy.id,
 			title: `${scene.title} · ${policy.title} ${variant + 1}`,
-			prompt: [policy.prompt,
-				plan.acoustics,
-				'Record only this isolated source, natural stereo depth, no additional sources or intelligible speech.',
-				...plan.layers.filter(layer => layer.id !== policy.id).map(layer => `Exclude ${layerSources[layer.id]}.`),
-				...(scene.sleepMode ? ['Gentle dynamics, smooth beginning and ending.'] : []),
-				...scene.constraints].join(' ').slice(0, 6000),
+			prompt: layerSoundPrompt(scene, plan, policy),
 		}, owner, preparation
 			? {
 				preparation, timingProfile: `layer:${hash(profile)}:${clipSeconds(policy.id)}`,

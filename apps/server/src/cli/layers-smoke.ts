@@ -20,6 +20,7 @@ import {type Planner} from '../planning/contracts.js';
 import {layerClips} from '../layers/timeline.js';
 import {testPlan} from '../layers/fixtures.js';
 import {writeJson} from '../monitoring/storage.js';
+import {assertBeachPlan, beachPrompt} from './layer-regression.js';
 
 loadEnvironment();
 const real = process.argv.includes('--real');
@@ -135,13 +136,20 @@ async function decode(streamUrl: string, seconds: number) {
 
 try {
 	await start();
-	const prompt = 'Inside a cozy café, soft jazz piano plays continuously, indistinct conversation fills the room, an espresso machine hums, and cups occasionally clink on tables.';
+	const beach = real && process.argv.includes('--beach');
+	const prompt = beach
+		? beachPrompt
+		: 'Inside a cozy café, soft jazz piano plays continuously, indistinct conversation fills the room, an espresso machine hums, and cups occasionally clink on tables.';
 	const started = Date.now();
 	const owner = manager!.create('ambience', prompt, false, 'layered');
 	console.log(`Layered smoke: ${origin}/?session=${owner.session.id} · ${directory}`);
 	await manager!.play(owner.session.id, owner.listenerId);
 	report.readyMs = Date.now() - started;
 	report.initial = manager!.debug(owner.session.id);
+	if (beach) {
+		assertBeachPlan(manager!.debug(owner.session.id).layeredTimeline!.plan);
+	}
+
 	const {layers} = manager!.debug(owner.session.id);
 	assert.ok(layers.some(layer => layer.id === 'music') && layers.some(layer => layer.id === 'activity'));
 	assert.ok(layers.every(layer => layer.state === 'ready' || (!layer.required && layer.state === 'unavailable')));
