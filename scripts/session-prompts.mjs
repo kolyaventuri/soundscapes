@@ -1,11 +1,7 @@
-import {existsSync} from 'node:fs';
-import path from 'node:path';
 import process from 'node:process';
-import {DatabaseSync} from 'node:sqlite';
-import {fileURLToPath} from 'node:url';
 import {parseArgs, stripVTControlCharacters} from 'node:util';
+import {dataDirectory, readReport} from './lib/session-report.mjs';
 
-const root = fileURLToPath(new URL('../', import.meta.url));
 const {values, positionals} = parseArgs({
 	allowPositionals: true,
 	options: {
@@ -25,69 +21,12 @@ try {
 			throw new Error('Supply either one session ID or --latest, not both. Usage: pnpm session:prompts <SESSION_ID|--latest>');
 		}
 
-		if (existsSync(path.join(root, '.env'))) {
-			process.loadEnvFile(path.join(root, '.env'));
-		}
-
-		const directory = path.resolve(root, values['data-dir'] ?? process.env.DATA_DIR ?? 'data');
-		const report = readReport(directory, positionals[0]);
+		const report = readReport(dataDirectory(values['data-dir']), positionals[0]);
 		console.log(values.json ? JSON.stringify(report, null, 2) : formatReport(report));
 	}
 } catch (error) {
 	console.error(`Unable to inspect session: ${error.message}`);
 	process.exitCode = 1;
-}
-
-function readReport(directory, id) {
-	const database = path.join(directory, 'soundscapes.sqlite');
-	if (!existsSync(database)) {
-		throw new Error(`Database not found: ${database}`);
-	}
-
-	const db = new DatabaseSync(database, {readOnly: true});
-	try {
-		// One snapshot keeps pool membership and asset metadata consistent during generation.
-		db.exec('BEGIN');
-		const row = id === undefined
-			? db.prepare('SELECT id, state FROM sessions ORDER BY CAST(json_extract(state, \'$.createdAt\') AS REAL) DESC, id DESC LIMIT 1').get()
-			: db.prepare('SELECT id, state FROM sessions WHERE id = ?').get(id);
-		if (!row) {
-			if (id === undefined) {
-				throw new Error(`No saved sessions found in ${database}.`);
-			}
-
-			throw new Error(`Session ${id} not found in ${database}. Stopped sessions may have been removed.`);
-		}
-
-		const state = JSON.parse(row.state);
-		const groups = state.layered?.layers?.map(layer => ({
-			id: layer.policy.id, policy: layer.policy, assetIds: layer.assetIds, clips: layer.clips,
-		})) ?? [{id: 'ambience', assetIds: state.assetIds ?? [], clips: state.timeline?.beds ?? []}];
-		if (state.scheduledEvents?.length) {
-			groups.push({id: 'scheduled-events', assetIds: state.scheduledEvents.map(event => event.assetId), clips: state.scheduledEvents});
-		}
-
-		const query = db.prepare('SELECT metadata FROM assets WHERE id = ?');
-		return {
-			id: row.id, database, status: state.status, mode: state.generationMode ?? 'simple', scene: state.scene,
-			acoustics: state.layered?.plan?.acoustics,
-			groups: groups.map(group => ({
-				...group,
-				assets: [...new Set(group.assetIds)].map(assetId => {
-					const assetRow = query.get(assetId);
-					if (!assetRow) {
-						return {id: assetId, missingMetadata: true};
-					}
-
-					const asset = JSON.parse(assetRow.metadata);
-					const absoluteFile = path.resolve(directory, asset.file);
-					return {...asset, absoluteFile, fileExists: existsSync(absoluteFile)};
-				}),
-			})),
-		};
-	} finally {
-		db.close();
-	}
 }
 
 function formatReport(report) {
@@ -119,6 +58,7 @@ function formatReport(report) {
 		heading(`PROMPT CHAIN · ${report.scene?.title ?? report.id}`),
 		`Session: ${clean(report.id)}   Mode: ${clean(report.mode)}   Status: ${clean(report.status)}`,
 		`Database: ${clean(report.database)}`,
+		`Play a numbered WAV: pnpm wav:play --session ${clean(report.id)} --wav NUMBER`,
 	);
 	section('1. YOUR ORIGINAL PROMPT', report.scene?.originalPrompt);
 	section('2. PARSED SCENE', report.scene?.description);
@@ -155,7 +95,7 @@ function formatReport(report) {
 		for (const [index, [prompt, assets]] of [...prompts].entries()) {
 			section(`   Exact sound-model prompt ${index + 1} (${assets.length} recording${assets.length === 1 ? '' : 's'})`, prompt);
 			for (const asset of assets) {
-				lines.push('', `    ${clean(asset.title ?? asset.id)}`, `      ID: ${clean(asset.id)}`);
+				lines.push('', `    [WAV ${clean(asset.wavNumber)}] ${clean(asset.title ?? asset.id)}`, `      ID: ${clean(asset.id)}`);
 				if (asset.missingMetadata) {
 					lines.push('      MISSING asset metadata');
 					continue;

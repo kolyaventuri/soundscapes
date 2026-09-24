@@ -10,6 +10,7 @@
   },
   "scripts": {
     "session:prompts": "node scripts/session-prompts.mjs",
+    "wav:play": "node scripts/wav-play.mjs",
     "fixture:create": "pnpm --filter @soundscapes/server fixture:create",
     "audio:smoke": "pnpm --filter @soundscapes/server audio:smoke",
     "audio:integration": "pnpm --filter @soundscapes/server audio:integration",
