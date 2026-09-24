@@ -127,3 +127,12 @@ The crypt scene failed before sound inference because its compiled ambience capt
 The exact failed scene was read from its persisted metadata without modifying it. The old compiled schema reproduced the error; with the rebuilt contract, real local Qwen planning passed in 40.5 seconds, producing 523-character ambience and 458-character effects captions (`data/caption-checks/crypt-plan.json`). This was a planner check, not a new sound-generation/listening pass. Planner prompts, worker code and sampling settings are unchanged. Layer-plan failures now point to planning/server logs rather than telling the user to reinstall the sound model. Automated tests preserve four maximum-sized sources through compiled policy, JSON persistence and sound-request validation, retain oversized-input rejection, and verify the corrected error classification.
 
 `pnpm check` passes 109 tests, lint, types and builds. Real FFmpeg `audio:smoke`, `audio:integration`, `audio:phase3` and `audio:layers` pass, including pause/watchdog behavior, saved-state restoration, layer cancellation and required/optional failures. The layered check retained at least 89.9 seconds buffered. Test processes exited normally. No physical-device or new listening acceptance is claimed.
+
+
+## Overnight listening acceptance — 2026-09-24
+
+The user reports that overnight playback worked fine and the session paused when the Bluetooth sleep buds entered their own sleep/idle mode. This listening/use check is accepted. The reported playback timestamps, `1790223949153` through `1790227734726` (Unix milliseconds), span **1 h 3 min 5.573 s**. The automatic pause is expected device behavior, not a reported stream failure.
+
+No soak recorder was running. Starting a separate script and obtaining a session ID from the PWA was impractical with the laptop across the house. Add recording controls to the PWA, automatically attached to its current session, before asking for another unattended measured run. Diagnostic collection must remain passive and must not keep playback active.
+
+This report does not establish eight hours of active playback or measured memory, disk, CPU/GPU, buffer and segment-retention trends. Those formal gates remain open separately from the accepted listening check. The earlier eight-minute interrupted recorder artifact is not evidence for this run. Exact build, scene/session ID, iOS version and sleep-bud model were not supplied for this report; no new automated or physical-device tests were performed while recording it.
