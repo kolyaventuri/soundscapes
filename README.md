@@ -319,10 +319,13 @@ The printed `data/acceptance/<timestamp>-<suffix>/report.json` records actual ou
 
 ```sh
 pnpm session:prompts YOUR_SESSION_UUID
+pnpm session:prompts --latest
 pnpm --silent session:prompts YOUR_SESSION_UUID --json > /tmp/prompt-chain.json
 ```
 
 This read-only command works with the server running or stopped. It shows your original prompt, parsed scene, shared acoustic context, layer captions/policies, and the exact prompts sent to the sound model. Recordings sharing a prompt are grouped together, with individual seeds, durations, model names and absolute WAV paths. Missing metadata/files are marked. `--json` includes complete asset metadata and retained schedules; `--data-dir PATH` overrides the repository `.env`/`DATA_DIR` setting. Paths are resolved relative to the repository.
+
+`--latest` selects the most recently created saved session (not the most recently resumed); use it instead of a session ID. It also works with `--json` and `--data-dir`.
 
 The report reflects persisted state, not a complete inference transcript. Raw LLM messages and rejected/pre-normalization audio are not retained. Explicitly stopped sessions may no longer exist in the database.
 

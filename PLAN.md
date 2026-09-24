@@ -167,7 +167,7 @@ Spec: §2, §21, §25–29, §41, §45, §47, §51.
 
 ## Optional advanced layering and later work
 
-- [x] Add `pnpm session:prompts <SESSION_ID>` for read-only inspection of original/parsed/layer/final generation prompts and matching WAVs, with grouped variants and JSON export. Verified the restaurant session’s four layers and 16 files, missing-session/database handling, and targeted lint; this is diagnostic tooling, not listening acceptance.
+- [x] Add `pnpm session:prompts <SESSION_ID|--latest>` for read-only inspection of original/parsed/layer/final generation prompts and matching WAVs, with grouped variants and JSON export. Verified the restaurant session’s four layers and 16 files, missing-session/database handling, and targeted lint; this is diagnostic tooling, not listening acceptance.
 - [x] Prototype an opt-in **Layered scene (advanced)** mode automatically from one prompt, with disclosed extra preparation and measured estimates (indeterminate when unknown); retain the existing single-bed-pool mode as the default.
 - [x] Plan only requested/appropriate layers: environmental ambience, music, human activity/crowd or nonverbal vocal textures, and discrete SFX. Generate/cache layers separately using suitable models, sequentially within the existing inference budget; do not require every scene to have every layer.
 - [x] Extend persisted timelines and the FFmpeg mixer for independent layer gain, fades and entry/exit, producing one HLS stream. Optional ducking remains future fidelity work. Bound layer/voice counts, sum-level headroom and future work; preserve pause/watchdog cancellation and the encoder commit boundary.

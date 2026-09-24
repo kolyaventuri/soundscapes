@@ -9,19 +9,20 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 const {values, positionals} = parseArgs({
 	allowPositionals: true,
 	options: {
-		'data-dir': {type: 'string'}, json: {type: 'boolean'}, help: {type: 'boolean', short: 'h'},
+		'data-dir': {type: 'string'}, json: {type: 'boolean'}, latest: {type: 'boolean'}, help: {type: 'boolean', short: 'h'},
 	},
 });
 
 try {
 	if (values.help) {
-		console.log('Usage: pnpm session:prompts <SESSION_ID> [--json] [--data-dir PATH]\n\n'
+		console.log('Usage: pnpm session:prompts <SESSION_ID|--latest> [--json] [--data-dir PATH]\n\n'
 			+ 'Read the saved prompt chain and audio metadata without starting or contacting the server.\n'
+			+ '--latest selects the most recently created saved session, not the most recently resumed.\n'
 			+ 'Uses the repository .env/DATA_DIR by default. --json outputs the complete structured report.\n'
 			+ 'Only persisted session/asset data is available, not raw LLM conversation history or rejected audio.');
 	} else {
-		if (positionals.length !== 1) {
-			throw new Error('Supply one session ID. Usage: pnpm session:prompts <SESSION_ID>');
+		if (values.latest ? positionals.length > 0 : positionals.length !== 1) {
+			throw new Error('Supply either one session ID or --latest, not both. Usage: pnpm session:prompts <SESSION_ID|--latest>');
 		}
 
 		if (existsSync(path.join(root, '.env'))) {
@@ -47,8 +48,14 @@ function readReport(directory, id) {
 	try {
 		// One snapshot keeps pool membership and asset metadata consistent during generation.
 		db.exec('BEGIN');
-		const row = db.prepare('SELECT state FROM sessions WHERE id = ?').get(id);
+		const row = id === undefined
+			? db.prepare('SELECT id, state FROM sessions ORDER BY CAST(json_extract(state, \'$.createdAt\') AS REAL) DESC, id DESC LIMIT 1').get()
+			: db.prepare('SELECT id, state FROM sessions WHERE id = ?').get(id);
 		if (!row) {
+			if (id === undefined) {
+				throw new Error(`No saved sessions found in ${database}.`);
+			}
+
 			throw new Error(`Session ${id} not found in ${database}. Stopped sessions may have been removed.`);
 		}
 
@@ -62,7 +69,7 @@ function readReport(directory, id) {
 
 		const query = db.prepare('SELECT metadata FROM assets WHERE id = ?');
 		return {
-			id, database, status: state.status, mode: state.generationMode ?? 'simple', scene: state.scene,
+			id: row.id, database, status: state.status, mode: state.generationMode ?? 'simple', scene: state.scene,
 			acoustics: state.layered?.plan?.acoustics,
 			groups: groups.map(group => ({
 				...group,
