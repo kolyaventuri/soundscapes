@@ -1,5 +1,5 @@
 import {
-	createSessionSchema, listenerControlSchema, listenerSessionSchema, sessionIdSchema, sessionSchema, sessionListSchema, volumeControlSchema,
+	createSessionSchema, listenerControlSchema, listenerSessionSchema, sessionIdSchema, sessionSchema, sessionListSchema, volumeControlSchema, sceneLibrarySchema,
 } from '@soundscapes/shared';
 import {type FastifyInstance} from 'fastify';
 import {z} from 'zod';
@@ -16,6 +16,13 @@ type SessionParameters = {id: string};
 type ListenerBody = {listenerId: string};
 
 export function registerSessionRoutes(app: FastifyInstance, manager: SessionManager) {
+	app.get<{Querystring: {q?: string; offset?: string}}>('/api/scenes', {
+		schema: {
+			querystring: jsonSchema(z.strictObject({q: z.string().max(200).optional(), offset: z.string().regex(/^\d{1,8}$/).optional()})),
+			response: {200: jsonSchema(sceneLibrarySchema)},
+		},
+	}, async request => manager.listScenes(request.query.q?.trim() ?? '', Number(request.query.offset ?? 0)));
+
 	app.get('/api/sessions', {
 		schema: {response: {200: jsonSchema(sessionListSchema)}},
 	}, async () => manager.list());

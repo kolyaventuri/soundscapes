@@ -15,7 +15,8 @@ export const layerPlanSchema = z.strictObject({acoustics: z.string().trim().min(
 export type LayerPolicy = z.infer<typeof layerPolicySchema>;
 export type LayerPlan = z.infer<typeof layerPlanSchema>;
 export const layerProgressSchema = z.object({
-	id: layerIdSchema, title: z.string(), required: z.boolean(), playback: z.enum(['continuous', 'gapped', 'sparse']),
+	id: layerIdSchema, title: z.string(), description: z.string().max(layerPromptMaxLength).default(''),
+	expansion: z.enum(['idle', 'expanding', 'limited']).default('idle'), required: z.boolean(), playback: z.enum(['continuous', 'gapped', 'sparse']),
 	state: z.enum(['waiting', 'generating', 'ready', 'unavailable']), readyClips: z.number().int().min(0).max(6),
 	initialClips: z.number().int().min(1).max(4), targetClips: z.number().int().min(1).max(6), warning: z.string().max(300).nullable(),
 });

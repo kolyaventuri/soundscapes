@@ -3,6 +3,7 @@ import {
 	sessionSchema,
 	type ListenerSession,
 	type Session,
+	type SavedScene,
 } from '@soundscapes/shared';
 import {useCallback, useEffect, useState} from 'react';
 import {ApiError, request} from './api.js';
@@ -11,6 +12,8 @@ import {PreparationFeedback} from './preparation.js';
 import {InstallInfo} from './install.js';
 import {StreamLevel} from './level.js';
 import {OpenSessions} from './sessions.js';
+import {SceneDetails} from './scene-details.js';
+import {SceneLibrary} from './library.js';
 
 function restoreConnection() {
 	try {
@@ -87,27 +90,6 @@ function SessionPlayback({
 					isRebuffering={session.ready}
 				/>
 			) : null}
-			{session.generationMode === 'layered' && !terminal ? (
-				<div className="layer-summary" aria-label="Scene layers">
-					<p className="notice-title">Layered scene · advanced</p>
-					{session.layers.length === 0 ? (
-						<p>Planning the layers from your description…</p>
-					) : (
-						<ul>
-							{session.layers.map((layer) => (
-								<li key={layer.id}>
-									<strong>{layer.title}</strong>
-									{' · '}
-									{layer.state === 'unavailable'
-										? 'Unavailable'
-										: `${layer.readyClips} recordings ready${layer.state === 'generating' ? ' · Preparing' : ''}`}
-									{layer.warning ? <p role="status">{layer.warning}</p> : null}
-								</li>
-							))}
-						</ul>
-					)}
-				</div>
-			) : null}
 			{session.status === 'idle' && !session.ready ? (
 				<button
 					type="button"
@@ -159,54 +141,6 @@ function preparationLabel(join: boolean, prompt: string) {
 			: 'Prepare test stream';
 }
 
-function SceneSummary({session}: {readonly session: Session}) {
-	const {scene} = session;
-	if (!scene || !['active', 'idle'].includes(session.status)) {
-		return null;
-	}
-
-	return (
-		<div className="scene-summary">
-			<p>{scene.description}</p>
-			<dl>
-				<dt>Setting</dt>
-				<dd>
-					{scene.location || scene.title}
-					{scene.sleepMode ? ' · Sleep mode' : ''}
-				</dd>
-				<dt>Scene clock</dt>
-				<dd>
-					{new Date(session.simulatedTime).toLocaleString(undefined, {
-						timeZone: 'UTC',
-						year: 'numeric',
-						month: 'short',
-						day: 'numeric',
-						hour: 'numeric',
-						minute: '2-digit',
-					})}
-				</dd>
-				<dt>Weather</dt>
-				<dd>
-					{Object.values(scene.weather).filter(Boolean).join(' · ') ||
-						'Not specified'}
-				</dd>
-			</dl>
-			{session.recentEvents.length > 0 ? (
-				<details>
-					<summary>Recent sounds</summary>
-					<ul>
-						{session.recentEvents.map((event) => (
-							<li key={`${event.simulatedTime}-${event.description}`}>
-								{event.description}
-							</li>
-						))}
-					</ul>
-				</details>
-			) : null}
-		</div>
-	);
-}
-
 function LayeredOption({
 	isLayered,
 	isBusy,
@@ -252,6 +186,17 @@ function preparationDisabled(
 	join: boolean,
 ) {
 	return busy || (layered && !prompt.trim() && !join);
+}
+
+function isTerminalSession(session: Session | undefined) {
+	return session?.status === 'stopped' || session?.status === 'error';
+}
+
+function libraryRevision(
+	revision: number,
+	connection: ListenerSession | undefined,
+) {
+	return `${revision}:${connection?.session.id}:${connection?.session.ready}`;
 }
 
 export function App() {
@@ -447,8 +392,33 @@ export function App() {
 		}
 	}, [id, closeSessions]);
 
+	const useScene = useCallback(
+		(saved: SavedScene) => {
+			if (
+				busy ||
+				(connection &&
+					!['stopped', 'error'].includes(connection.session.status))
+			)
+				return;
+			if (connection) forgetSession(connection.session.id);
+			const url = new URL(globalThis.location.href);
+			url.searchParams.delete('session');
+			globalThis.history.replaceState(
+				null,
+				'',
+				`${url.pathname}${url.search}${url.hash}`,
+			);
+			setPrompt(saved.scene.originalPrompt);
+			setSleepMode(saved.scene.sleepMode);
+			setLayered(saved.generationMode === 'layered');
+			setError('');
+			document.querySelector<HTMLTextAreaElement>('#scene-prompt')?.focus();
+		},
+		[busy, connection, forgetSession],
+	);
+
 	const session = connection?.session;
-	const terminal = session?.status === 'stopped' || session?.status === 'error';
+	const terminal = isTerminalSession(session);
 	const join =
 		!connection &&
 		new URLSearchParams(globalThis.location.search).has('session');
@@ -492,12 +462,12 @@ export function App() {
 						</p>
 					</div>
 				) : null}
-				{session ? <SceneSummary session={session} /> : null}
 				{showSetup && !join ? (
 					<>
 						<label className="scene-prompt">
 							Scene description
 							<textarea
+								id="scene-prompt"
 								value={prompt}
 								maxLength={4000}
 								rows={4}
@@ -551,6 +521,9 @@ export function App() {
 						onError={setError}
 					/>
 				) : null}
+				{session ? (
+					<SceneDetails session={session} isConnected={!connectionError} />
+				) : null}
 				{message ? (
 					<p className="error" role="alert">
 						{message}
@@ -563,6 +536,11 @@ export function App() {
 				isBusy={busy}
 				revision={sessionsRevision}
 				onClose={closeSessions}
+			/>
+			<SceneLibrary
+				revision={libraryRevision(sessionsRevision, connection)}
+				isUsable={!busy && showSetup}
+				onUse={useScene}
 			/>
 			<footer>
 				<InstallInfo />

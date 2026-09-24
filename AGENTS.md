@@ -15,6 +15,7 @@
 - Phase 3 uses native Ollama/Qwen3 8B with cloud disabled, constrained JSON, bounded cancellable requests, and unload-after-request. Require review for imported WAVs and automated validation for generated WAVs; retain explicit model versus physical listening evidence. Phase 4 supports pinned Stable Audio 3 Medium/Small MLX and Small-SFX/Small-Music PyTorch workers; install models separately, keep runtime offline, and never pass setup tokens to inference.
 - Persist session/asset/event metadata through the versioned SQLite store. Normal shutdown preserves idle sessions; explicit Stop is terminal. Keep mixer work bounded and never modify audio at or before the encoder commit boundary.
 - Keep all non-stopped sessions visible with individual Close and Close all controls, including idle/failed sessions without an open tab. Listing must not renew listener activity; closing uses the existing terminal Stop lifecycle.
+- Saved-scene recipes persist independently of sessions; selecting one prefills the prompt and mode settings for a new session. Browsing and scene details are read-only and must not renew listeners or trigger inference.
 - Prefer `pnpm` for package management and `xo` for linting and `vitest` for tests, unless the project is configured otherwise.
 - When using Node.js, use the shell-configured version. If it is older than the latest LTS, advise an upgrade.
 - Close Chrome and other browser sessions you open as soon as they are no longer needed. Preserve pre-existing user sessions and tabs.

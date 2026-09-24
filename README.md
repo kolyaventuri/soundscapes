@@ -126,6 +126,12 @@ pnpm sound:smoke --scene
 
 **Open sessions** lists sessions retained by the server, including paused or failed sessions. **Open** rejoins a session; **Close** and **Close all** end playback for its listeners and free capacity. Closing a tab does not close the server session. The prototype supports four sessions and sixteen listeners per session.
 
+**Scene details** expands beneath the player (and during preparation) to show your original description, the interpreted setting, weather, activity, constraints and scene clock. Layered scenes include the planned source captions, continuous/occasional playback and live recording counts: preparing, ready, adding variations, complete, or a warning. It is read-only and uses the existing passive status polling.
+
+**Saved scenes** keeps successfully prepared descriptions and their Simple/Layered and Sleep settings, even after their sessions close. Search names, places or original descriptions, expand **View scene**, then choose **Use description** to fill the creation form. You can edit it before choosing **Prepare scene**; it creates a new session through normal planning/generation and may reuse compatible recordings. To resume the exact existing world, use **Open sessions** instead. Browsing is available during playback; reusing a description requires stopping the current session first.
+
+The library migrates automatically to SQLite v3 on server startup and includes still-retained prepared sessions. Repeated identical descriptions/settings share one saved entry. Sessions deleted before this feature cannot be reconstructed. The uncached `GET /api/scenes?q=...&offset=0` returns at most twelve entries; reading it never creates listeners, starts inference or renews playback activity. Restart an older running server after updating; for the installed PWA, close and reopen the app to pick up the new shell once available.
+
 **Sleep mode** requests gentler dynamics while preserving requested music and crowd murmur. **Scene level** changes the shared stream from 0–150%; device volume remains the immediate personal control. Stream-level changes become audible after already-buffered audio plays out.
 
 Pause stops rendering when no listeners remain active. The scene clock freezes while idle. A listener expires after 90 seconds without successful audio-segment consumption by default. Status and diagnostic polling do not keep it alive. Normal server shutdown preserves session state; explicit Stop is terminal.

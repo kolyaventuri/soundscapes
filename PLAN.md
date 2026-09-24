@@ -191,7 +191,9 @@ Spec: §2, §21, §25–29, §41, §45, §47, §51.
 - [ ] Complete layered human listening acceptance for isolation, balance, repetition and transitions. The measured soak covers ambience/effects playback from an existing pool; it does not establish music/activity behavior or ongoing inference under long-run load.
 - [ ] Slow scene mutations over 10–30 minutes with smooth transitions (§36).
 - [ ] Gradual replacement of the initial ambience pool (§37).
-- [ ] Saved-scene browsing (§30), richer loudness measurements, or additional presentation effects if required by listening results.
+- [x] Add saved-scene browsing (§30) with search, pagination and previews. Successfully prepared descriptions/settings persist independently of sessions in SQLite v3; retained prepared sessions are backfilled on startup. Selecting a saved description fills the form without starting playback or closing sessions. Tests cover migration, restart, deduplication, Stop survival, bounded API input/output and passive reads; Chrome verifies reuse and persistence through Stop/reload.
+- [x] Add a read-only Scene details panel for original/parsed scene, weather/clock/constraints, layer captions, continuity and live recording readiness/expansion/warnings. Verify simple/layered views and desktop/390×844 layouts; browsing while audio plays leaves playback running. No manual layer controls or changes to model prompts/scheduling.
+- [ ] Richer loudness measurements or additional presentation effects if required by listening results.
 
 These do not block v0.1 and should not displace transport reliability, resource control, or sleep suitability.
 
@@ -267,3 +269,5 @@ For each acceptance run, append commands/build revision, device/runtime versions
 | Date | Check | Evidence | Boundary |
 | --- | --- | --- | --- |
 | 2026-09-24 | Eight-hour laptop/browser soak | `data/soaks/2026-09-24T13-09-36.252Z-OoMpeP/`: 13:09:36–21:09:36 UTC; 961/961 active samples, no recorded issues, one server and encoder run, cursor advances eight hours. Buffer ≥106.53 s; session files ≤19.07 MiB; HLS files ≤40; PCM queue exactly three; retained ambience/effects schedules bounded. Source checkout `9e09593` clean at recorder start. | Layered crypt scene with four ambience/six effect assets; no inference during recording. Source revision does not certify the running build. No browser-side stall/audio capture, physical iPhone endurance or GPU/inference trend evidence. Full metrics and evidence boundaries in ACCEPTANCE.md. |
+
+| 2026-09-24 | Saved scenes and scene details | SQLite v3 scene recipes, passive paginated `GET /api/scenes`, search and form reuse; live read-only details from existing status polling. `pnpm check` passes 114 tests, lint/types/build. Real FFmpeg `audio:smoke`, `audio:integration`, and `audio:layers` pass (minimum layered buffer 89.9 s). Chrome verifies initial preparation, expansion/completion, simple/layered details, pagination, empty search, settings reuse, continued playback while browsing, and saving through Stop/reload; desktop and 390×844 inspected. | Isolated scripted planner/sound adapters with real FFmpeg. No new model-fidelity or physical-iPhone acceptance. Existing open prepared sessions backfill; sessions deleted before this feature cannot be reconstructed. Browser tab and test server cleaned up. |

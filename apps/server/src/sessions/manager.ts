@@ -156,6 +156,9 @@ export class SessionManager {
 				runs: new Map(saved.runs.map(id => [id, path.join(this.directory(saved.id), 'hls', id)])),
 			};
 			this.records.set(saved.id, session);
+			if (session.currentRun) {
+				this.rememberScene(session);
+			}
 		}
 
 		await this.recoverFiles();
@@ -237,6 +240,10 @@ export class SessionManager {
 				.sort((left, right) => right.createdAt - left.createdAt)
 				.map(session => sessionSummarySchema.parse(this.view(session))),
 		};
+	}
+
+	listScenes(query: string, offset: number) {
+		return this.store.scenes(query, offset);
 	}
 
 	async setVolume(id: string, listenerId: string, percent: number) {
@@ -540,6 +547,15 @@ export class SessionManager {
 		return session.elapsedMs + (session.activeSince === undefined ? 0 : Math.max(0, this.now() - session.activeSince));
 	}
 
+	private rememberScene(session: Record) {
+		if (session.sceneReady && session.scene.originalPrompt.trim()) {
+			this.store.rememberScene({
+				scene: session.scene, generationMode: session.generationMode,
+				layerPlan: session.layered?.plan ?? null, savedAt: new Date(session.createdAt).toISOString(),
+			});
+		}
+	}
+
 	private save(session: Record) {
 		this.store.saveSession(session.id, {
 			id: session.id, mode: session.mode, status: session.status, createdAt: session.createdAt,
@@ -625,7 +641,14 @@ export class SessionManager {
 			volumePercent: session.volumePercent,
 			generationMode: session.generationMode,
 			layers: session.layered?.layers.map(layer => ({
-				id: layer.policy.id, title: layer.policy.title, required: layer.policy.required, playback: layer.policy.playback,
+				id: layer.policy.id, title: layer.policy.title, description: layer.policy.prompt,
+				expansion: layer.expansionFailed
+					? 'limited'
+					: (session.expansion && !session.expansion.signal.aborted
+						&& session.layered?.layers.find(item => item.state === 'ready' && !item.expansionFailed && item.assetIds.length < poolSize(item.policy.id).target) === layer
+						? 'expanding'
+						: 'idle'),
+				required: layer.policy.required, playback: layer.policy.playback,
 				state: layer.state, readyClips: layer.assetIds.length, initialClips: poolSize(layer.policy.id).initial, targetClips: poolSize(layer.policy.id).target, warning: layer.warning,
 			})) ?? [],
 			recentEvents: session.scheduledEvents.filter(event => event.startMs <= this.elapsed(session)).slice(-3).reverse()
@@ -790,6 +813,7 @@ export class SessionManager {
 		session.progress.complete();
 		session.progress.update('ready');
 		session.currentRun = runId;
+		this.rememberScene(session);
 		session.preparation = '';
 		while (session.runs.size > 2) {
 			const oldest = session.runs.entries().next().value;

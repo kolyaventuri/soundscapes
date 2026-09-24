@@ -3,9 +3,10 @@ import {
 	mkdtemp, mkdir, readFile, readdir, rm, writeFile,
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
+import {DatabaseSync} from 'node:sqlite';
 import path from 'node:path';
 import {
-	listenerSessionSchema, sceneSchema, sessionListSchema, layerPlanSchema,
+	listenerSessionSchema, sceneSchema, sessionListSchema, layerPlanSchema, sceneLibrarySchema,
 } from '@soundscapes/shared';
 import {
 	afterEach, expect, it, vi,
@@ -538,6 +539,75 @@ it('cleans crash leftovers only in owned UUID session folders and rebuilds missi
 		expect(restored.get(session.id)).toMatchObject({ready: true, status: 'idle'});
 		expect(await readdir(root)).toContain('keep-me');
 		expect(await readdir(root)).not.toContain(path.basename(orphan));
+	} finally {
+		await restored.close();
+	}
+});
+
+it('archives ready scenes, preserves them after Stop, and keeps library reads passive and bounded', async () => {
+	const parseScene = vi.fn(async (originalPrompt: string) => sceneSchema.parse({
+		originalPrompt, title: 'Autumn park', sleepMode: true, description: 'Leaves rustle beside a footpath.', simulatedStart: '1932-10-01T01:00:00Z',
+	}));
+	const {manager, config, advance, factory} = await setup({busy: false, parseScene, propose: vi.fn()});
+	const owner = manager.create('ambience', 'A park with rustling leaves');
+	expect(manager.listScenes('', 0).total).toBe(0);
+	await manager.play(owner.session.id, owner.listenerId);
+	const app = await buildApp({config, sessions: manager});
+	try {
+		advance(89_000);
+		const response = await app.inject('/api/scenes?q=leaves');
+		expect(response.statusCode).toBe(200);
+		expect(response.headers['cache-control']).toBe('no-store');
+		const listing = sceneLibrarySchema.parse(response.json());
+		expect(listing.total).toBe(1);
+		expect(listing.scenes[0]).toMatchObject({scene: {sleepMode: true, originalPrompt: 'A park with rustling leaves'}, generationMode: 'simple'});
+		for (const privateField of ['listenerId', 'streamUrl', 'producerPid', 'assets/']) {
+			expect(response.body).not.toContain(privateField);
+		}
+
+		for (const query of ['offset=-1', 'offset=1.2', 'offset=100000000', 'extra=1', `q=${'a'.repeat(201)}`]) {
+			// eslint-disable-next-line no-await-in-loop -- Exercise each independent invalid request.
+			const invalid = await app.inject(`/api/scenes?${query}`);
+			expect(invalid.statusCode).toBe(400);
+		}
+
+		const calls = factory.mock.calls.length;
+		advance(1001);
+		await manager.sweep();
+		expect(manager.get(owner.session.id)).toMatchObject({status: 'idle', rendering: false, listenerCount: 0});
+		expect(factory).toHaveBeenCalledTimes(calls);
+		await manager.stop(owner.session.id);
+		const afterStop = await app.inject('/api/scenes');
+		expect(sceneLibrarySchema.parse(afterStop.json())).toEqual(listing);
+		expect(manager.list().sessions).toEqual([]);
+		expect(parseScene).toHaveBeenCalledTimes(1);
+	} finally {
+		await app.close();
+	}
+});
+
+it('backfills prepared pre-library sessions on upgrade without starting playback or inference', async () => {
+	const parseScene = vi.fn(async (originalPrompt: string) => sceneSchema.parse({
+		originalPrompt, title: 'Saved park', sleepMode: false, simulatedStart: '1932-10-01T01:00:00Z',
+	}));
+	const {manager, config, factory} = await setup({busy: false, parseScene, propose: vi.fn()});
+	const owner = manager.create('ambience', 'An existing park scene');
+	await manager.playlist(owner.session.id, owner.listenerId);
+	await manager.close();
+	const file = path.join(config.dataDirectory, 'test.sqlite');
+	const database = new DatabaseSync(file);
+	database.exec('DROP TABLE saved_scenes; PRAGMA user_version=2;');
+	database.close();
+	const restored = new SessionManager({
+		config, store: new Store(file), rendererFactory: factory, automaticWatchdog: false,
+	});
+	const calls = factory.mock.calls.length;
+	try {
+		await restored.initialize();
+		expect(restored.listScenes('', 0).scenes[0]).toMatchObject({scene: {title: 'Saved park', originalPrompt: 'An existing park scene'}});
+		expect(restored.get(owner.session.id)).toMatchObject({status: 'idle', rendering: false, listenerCount: 0});
+		expect(factory).toHaveBeenCalledTimes(calls);
+		expect(parseScene).toHaveBeenCalledTimes(1);
 	} finally {
 		await restored.close();
 	}

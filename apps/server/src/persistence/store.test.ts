@@ -3,6 +3,7 @@ import {mkdtemp, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {DatabaseSync} from 'node:sqlite';
+import {sceneSchema, sceneLibrarySchema} from '@soundscapes/shared';
 import {expect, it} from 'vitest';
 import {claimServer} from './open.js';
 import {Store} from './store.js';
@@ -93,6 +94,56 @@ it('refuses two servers sharing a data directory and rejects an invalid ownershi
 		await writeFile(path.join(directory, '.server.lock'), 'invalid');
 		await expect(claimServer(directory)).rejects.toThrow('Invalid server lock');
 	} finally {
+		await rm(directory, {recursive: true, force: true});
+	}
+});
+
+it('migrates v2 and retains searchable, deduplicated scene recipes independently of sessions', async () => {
+	const directory = await mkdtemp(path.join(tmpdir(), 'soundscapes-library-'));
+	const file = path.join(directory, 'test.sqlite');
+	const legacy = new DatabaseSync(file);
+	legacy.exec('CREATE TABLE sessions (id TEXT PRIMARY KEY, state TEXT NOT NULL); PRAGMA user_version=2;');
+	legacy.prepare('INSERT INTO sessions VALUES (?, ?)').run('original', '{"elapsedMs":42}');
+	legacy.close();
+	let store = new Store(file);
+	const scene = sceneSchema.parse({
+		title: 'Ocean café', originalPrompt: 'Waves beside a café', location: 'Beach', sleepMode: false, simulatedStart: '2000-01-01T01:00:00Z',
+	});
+	const recipe = {
+		scene, generationMode: 'simple' as const, layerPlan: null, savedAt: '2026-09-24T00:00:00Z',
+	};
+	try {
+		expect(store.loadSessions()).toEqual([{elapsedMs: 42}]);
+		store.rememberScene(recipe);
+		const original = store.scenes().scenes[0]!;
+		store.rememberScene({...recipe, scene: {...scene, originalPrompt: `  ${scene.originalPrompt}  `}});
+		store.rememberScene({...recipe, generationMode: 'layered'});
+		store.rememberScene({...recipe, scene: {...scene, sleepMode: true}});
+		expect(store.scenes().total).toBe(3);
+		for (let index = 0; index < 15; index++) {
+			store.rememberScene({
+				...recipe, scene: {
+					...scene, originalPrompt: `Forest ${index}`, title: `Forest ${index}`, location: 'Woodland',
+				},
+			});
+		}
+
+		expect(sceneLibrarySchema.parse(store.scenes()).scenes).toHaveLength(12);
+		const secondPage = store.scenes('', 12);
+		expect(secondPage.scenes).toHaveLength(6);
+		expect(new Set([...store.scenes().scenes, ...secondPage.scenes].map(item => item.id)).size).toBe(18);
+		expect(store.scenes('BEACH').total).toBe(3);
+		expect(store.scenes('waves').total).toBe(3);
+		expect(store.scenes('%\' OR 1=1 --').total).toBe(0);
+		expect(store.scenes('', 99).scenes).toEqual([]);
+		store.deleteSession('original');
+		store.close();
+		store = new Store(file);
+		expect(store.scenes().total).toBe(18);
+		expect(store.scenes('waves').scenes).toContainEqual(original);
+		expect(store.loadSessions()).toEqual([]);
+	} finally {
+		store.close();
 		await rm(directory, {recursive: true, force: true});
 	}
 });

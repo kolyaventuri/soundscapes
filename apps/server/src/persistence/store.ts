@@ -1,6 +1,9 @@
+import {createHash, randomUUID} from 'node:crypto';
 import {DatabaseSync} from 'node:sqlite';
 import {z} from 'zod';
-import {eventCategorySchema, sceneSchema} from '@soundscapes/shared';
+import {
+	eventCategorySchema, sceneSchema, savedSceneSchema, sceneLibraryPageSize, type SavedScene,
+} from '@soundscapes/shared';
 import {generationMetadataSchema} from '../generation/contracts.js';
 
 export const assetSchema = z.object({
@@ -25,7 +28,7 @@ export class Store {
 		this.db = new DatabaseSync(file);
 		this.db.exec('PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;');
 		const version = this.db.prepare('PRAGMA user_version').get()!.user_version;
-		if (version !== 0 && version !== 1 && version !== 2) {
+		if (version !== 0 && version !== 1 && version !== 2 && version !== 3) {
 			this.db.close();
 			throw new Error(`Unsupported database version ${String(version)}`);
 		}
@@ -39,12 +42,39 @@ export class Store {
 				PRAGMA user_version=1; COMMIT;`);
 		}
 
-		if (version !== 2) {
+		if (version === 0 || version === 1) {
 			this.db.exec(`BEGIN IMMEDIATE;
 				CREATE TABLE preparation_timings (id INTEGER PRIMARY KEY, profile TEXT NOT NULL, elapsed_ms REAL NOT NULL);
 				CREATE INDEX timings_by_profile ON preparation_timings(profile, id);
 				PRAGMA user_version=2; COMMIT;`);
 		}
+
+		if (version !== 3) {
+			this.db.exec(`BEGIN IMMEDIATE;
+				CREATE TABLE saved_scenes (id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL UNIQUE, saved_at TEXT NOT NULL, data TEXT NOT NULL);
+				CREATE INDEX scenes_by_date ON saved_scenes(saved_at DESC, id);
+				PRAGMA user_version=3; COMMIT;`);
+		}
+	}
+
+	rememberScene(value: Omit<SavedScene, 'id'>) {
+		const saved = savedSceneSchema.parse({...value, id: randomUUID()});
+		const fingerprint = createHash('sha256').update(JSON.stringify([
+			saved.scene.originalPrompt.trim(), saved.scene.sleepMode, saved.generationMode,
+		])).digest('hex');
+		this.db.prepare('INSERT INTO saved_scenes VALUES (?, ?, ?, ?) ON CONFLICT(fingerprint) DO NOTHING')
+			.run(saved.id, fingerprint, saved.savedAt, JSON.stringify(saved));
+	}
+
+	scenes(query = '', offset = 0) {
+		const where = `instr(lower(json_extract(data, '$.scene.title') || ' ' || json_extract(data, '$.scene.originalPrompt')
+			|| ' ' || json_extract(data, '$.scene.location')), lower(?)) > 0`;
+		return {
+			scenes: this.db.prepare(`SELECT data FROM saved_scenes WHERE ${where} ORDER BY saved_at DESC, id LIMIT ? OFFSET ?`)
+				.all(query, sceneLibraryPageSize, offset).map(row => savedSceneSchema.parse(JSON.parse(String(row.data)))),
+			total: Number(this.db.prepare(`SELECT count(*) AS total FROM saved_scenes WHERE ${where}`).get(query)!.total),
+			offset, limit: sceneLibraryPageSize,
+		};
 	}
 
 	recordTiming(profile: string, elapsedMs: number) {

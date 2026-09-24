@@ -6,6 +6,10 @@ export {
 	generationModeSchema, layerIdSchema, layerPlanSchema, layerPolicySchema, layerProgressSchema, type LayerPlan, type LayerPolicy,
 } from './layers.js';
 
+export {
+	savedSceneSchema, sceneLibrarySchema, sceneLibraryPageSize, type SavedScene,
+} from './library.js';
+
 export {sceneSchema, eventCategorySchema, type Scene} from './scene.js';
 
 export const healthResponseSchema = z.object({

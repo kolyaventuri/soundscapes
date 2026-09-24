@@ -1284,10 +1284,10 @@ POST /api/sessions/:id/stop
 ## Existing scenes
 
 ```http
-GET /api/scenes
+GET /api/scenes?q=...&offset=0
 ```
 
-Optional for first prototype.
+Saved-scene browsing retains successfully prepared descriptions, interpreted scene metadata, and simple/layered and sleep settings independently of session lifetime. Results are searchable and paginated in groups of twelve. Selecting an entry prefills the creation form for a new session; existing sessions remain resumable through the open-session list. Browsing and the read-only scene-details panel never renew listener activity or trigger inference.
 
 ---
 
