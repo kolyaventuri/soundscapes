@@ -315,6 +315,17 @@ This creates its own data directory and loopback test server, parses the Central
 
 The printed `data/acceptance/<timestamp>-<suffix>/report.json` records actual outcomes, model results, generated asset levels, recovery checks and playback summary; bounded `samples.jsonl` holds five-second measurements. Reports and generated assets remain available after its test server and workers stop. A failure saves evidence and exits nonzero. This is a server-side decoder check, not physical listening or a replacement for overnight acceptance. The recorder omits external Ollama/GPU allocation; worker results additionally report their own peak RSS.
 
+## Inspect a session’s prompt chain
+
+```sh
+pnpm session:prompts YOUR_SESSION_UUID
+pnpm --silent session:prompts YOUR_SESSION_UUID --json > /tmp/prompt-chain.json
+```
+
+This read-only command works with the server running or stopped. It shows your original prompt, parsed scene, shared acoustic context, layer captions/policies, and the exact prompts sent to the sound model. Recordings sharing a prompt are grouped together, with individual seeds, durations, model names and absolute WAV paths. Missing metadata/files are marked. `--json` includes complete asset metadata and retained schedules; `--data-dir PATH` overrides the repository `.env`/`DATA_DIR` setting. Paths are resolved relative to the repository.
+
+The report reflects persisted state, not a complete inference transcript. Raw LLM messages and rejected/pre-normalization audio are not retained. Explicitly stopped sessions may no longer exist in the database.
+
 ## Record an unattended playback run
 
 Use a fixed production build for tonight's run. Stop your development server first if it owns the port or the same data directory, then use the HTTPS setup already installed on the phone:
