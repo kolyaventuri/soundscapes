@@ -6,7 +6,7 @@ import path from 'node:path';
 import {performance} from 'node:perf_hooks';
 import {z} from 'zod';
 import {
-	sceneSchema, volumePercentSchema, generationModeSchema, type ListenerSession, type Session, type SessionStatus,
+	sceneSchema, volumePercentSchema, generationModeSchema, sessionLimit, sessionSummarySchema, type ListenerSession, type Session, type SessionStatus,
 } from '@soundscapes/shared';
 import {
 	playlistSegments, segmentNamePattern, startRenderer, type Renderer, type RendererFactory,
@@ -188,8 +188,8 @@ export class SessionManager {
 			}
 		}
 
-		if (this.records.size >= 4) {
-			throw new SessionError(409, 'Stop an existing session before creating another (maximum four).');
+		if (this.records.size >= sessionLimit) {
+			throw new SessionError(409, `Close a session in Open sessions before creating another (maximum ${sessionLimit}).`);
 		}
 
 		const session: Record = {
@@ -228,6 +228,15 @@ export class SessionManager {
 
 	get(id: string) {
 		return this.view(this.record(id));
+	}
+
+	list() {
+		return {
+			limit: sessionLimit,
+			sessions: [...this.records.values()].filter(session => session.status !== 'stopped')
+				.sort((left, right) => right.createdAt - left.createdAt)
+				.map(session => sessionSummarySchema.parse(this.view(session))),
+		};
 	}
 
 	async setVolume(id: string, listenerId: string, percent: number) {

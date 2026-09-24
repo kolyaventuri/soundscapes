@@ -21,6 +21,8 @@ Open [localhost:5173](http://localhost:5173), choose **Prepare test stream**, th
 
 Stop with Ctrl-C. The command starts a shared-package compiler watcher, the server watcher, and Vite. It builds shared contracts before starting the apps.
 
+**Open sessions** lists every session kept on the server, including paused or failed sessions whose tabs are gone. Use **Open** to rejoin, **Close** to end one, or **Close all** to end the listed sessions. Closing ends playback for everyone and frees space under the four-session limit. Closing a browser tab or restarting the server preserves the session. The list refreshes automatically and does not count as listening.
+
 For a single-origin production build:
 
 ```sh

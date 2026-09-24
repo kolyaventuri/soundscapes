@@ -5,11 +5,12 @@ import {
 	type Session,
 } from '@soundscapes/shared';
 import {useCallback, useEffect, useState} from 'react';
-import {request} from './api.js';
+import {ApiError, request} from './api.js';
 import {Player} from './player.js';
 import {PreparationFeedback} from './preparation.js';
 import {InstallInfo} from './install.js';
 import {StreamLevel} from './level.js';
+import {OpenSessions} from './sessions.js';
 
 function restoreConnection() {
 	try {
@@ -263,12 +264,43 @@ export function App() {
 	const [prompt, setPrompt] = useState('');
 	const [sleepMode, setSleepMode] = useState(false);
 	const [layered, setLayered] = useState(false);
+	const [sessionsRevision, setSessionsRevision] = useState(0);
 	const id = connection?.session.id;
-	const updateSession = useCallback((session: Session) => {
+	const forgetSession = useCallback((closedId: string) => {
 		setConnection((current) =>
-			current?.session.id === session.id ? {...current, session} : current,
+			current?.session.id === closedId ? undefined : current,
 		);
+		const url = new URL(globalThis.location.href);
+		if (url.searchParams.get('session') === closedId) {
+			url.searchParams.delete('session');
+			globalThis.history.replaceState(
+				null,
+				'',
+				`${url.pathname}${url.search}${url.hash}`,
+			);
+			try {
+				sessionStorage.removeItem('soundscapes-listener');
+			} catch {
+				/* Playback also works without storage. */
+			}
+
+			setConnectionError('');
+		}
 	}, []);
+	const updateSession = useCallback(
+		(session: Session) => {
+			if (session.status === 'stopped') {
+				forgetSession(session.id);
+				setSessionsRevision((value) => value + 1);
+				return;
+			}
+
+			setConnection((current) =>
+				current?.session.id === session.id ? {...current, session} : current,
+			);
+		},
+		[forgetSession],
+	);
 
 	useEffect(() => {
 		if (!id) {
@@ -294,6 +326,11 @@ export function App() {
 				}
 			} catch (error_) {
 				if (!disposed) {
+					if (error_ instanceof ApiError && error_.statusCode === 404) {
+						forgetSession(id!);
+						return;
+					}
+
 					setConnectionError(
 						error_ instanceof Error
 							? error_.message
@@ -314,7 +351,7 @@ export function App() {
 			controller.abort();
 			clearInterval(timer);
 		};
-	}, [id, updateSession]);
+	}, [id, updateSession, forgetSession]);
 
 	async function prepare() {
 		setBusy(true);
@@ -366,31 +403,49 @@ export function App() {
 			);
 		} finally {
 			setBusy(false);
+			setSessionsRevision((value) => value + 1);
 		}
 	}
 
-	const stop = useCallback(async () => {
-		if (!id) {
-			return;
-		}
+	const closeSessions = useCallback(
+		async (ids: string[]) => {
+			setBusy(true);
+			setError('');
+			// Snapshot the displayed IDs: a session created elsewhere during this action
+			// must not be closed. Finish all requests even if one fails.
+			const results = await Promise.allSettled(
+				ids.map(async (sessionId) => {
+					try {
+						await request(`/api/sessions/${sessionId}/stop`, sessionSchema, {
+							method: 'POST',
+						});
+					} catch (error_) {
+						if (!(error_ instanceof ApiError && error_.statusCode === 404)) {
+							throw error_;
+						}
+					}
 
-		setBusy(true);
-		try {
-			updateSession(
-				await request(`/api/sessions/${id}/stop`, sessionSchema, {
-					method: 'POST',
+					forgetSession(sessionId);
 				}),
 			);
-		} catch (error_) {
-			setError(
-				error_ instanceof Error
-					? error_.message
-					: 'The session could not be stopped',
-			);
-		} finally {
+			const failures = results.filter((result) => result.status === 'rejected');
+			if (failures.length > 0) {
+				setError(
+					`Could not close ${failures.length} session(s). Refresh the list and try again. ${failures[0]!.reason instanceof Error ? failures[0]!.reason.message : ''}`,
+				);
+			}
+
 			setBusy(false);
+			setSessionsRevision((value) => value + 1);
+		},
+		[forgetSession],
+	);
+
+	const stop = useCallback(async () => {
+		if (id) {
+			await closeSessions([id]);
 		}
-	}, [id, updateSession]);
+	}, [id, closeSessions]);
 
 	const session = connection?.session;
 	const terminal = session?.status === 'stopped' || session?.status === 'error';
@@ -483,7 +538,7 @@ export function App() {
 							void prepare();
 						}}
 					>
-						{busy ? 'Preparing…' : prepareLabel}
+						{busy ? 'Please wait…' : prepareLabel}
 					</button>
 				) : null}
 				{connection ? (
@@ -501,8 +556,14 @@ export function App() {
 						{message}
 					</p>
 				) : null}
-				{error ? <a href="/">Start a new test stream</a> : null}
+				{error ? <a href="#sessions-title">Manage open sessions</a> : null}
 			</section>
+			<OpenSessions
+				currentId={id}
+				isBusy={busy}
+				revision={sessionsRevision}
+				onClose={closeSessions}
+			/>
 			<footer>
 				<InstallInfo />
 				Generated locally. Shaped by your scene.

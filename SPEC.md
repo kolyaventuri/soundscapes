@@ -1214,6 +1214,18 @@ Response:
 
 ---
 
+## Open sessions
+
+```http
+GET /api/sessions
+```
+
+Return a bounded list of all non-stopped sessions on the local server, including idle, preparing and failed sessions restored after restart, plus the session limit. Include title, status, readiness, listener count, creation time and generation mode; do not expose listener credentials. Listing must not renew activity, start playback or trigger inference.
+
+The page must show these sessions even when it has no current player. Provide individual Close actions and Close all for the displayed sessions, using the existing Stop lifecycle. Explain that closing ends playback for all listeners. Refresh after changes, preserve sessions whose close request fails, and clear the page's connection when its own session closes. Do not automatically discard sessions to make room.
+
+---
+
 ## Session status
 
 ```http

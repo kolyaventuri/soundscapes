@@ -152,6 +152,8 @@ Spec: §16–18, §23–24, §30, §39–44, milestone 6 in §46.
 
 Spec: §2, §21, §25–29, §41, §45, §47, §51.
 
+- [x] Expose all open server sessions on the page, including orphaned idle/failed sessions, with status, creation time, individual Close and Close all. Bounded read-only listing does not renew listeners; closing uses Stop and clears the current page connection. API regression verifies capacity recovery and watchdog expiry despite polling; browser checks verify failed-session closure and bulk closure during playback. Physical-device acceptance remains separate.
+
 - [x] Complete automated coverage of session creation, bed registration, HLS output, pause/resume/stop, watchdog, asset reuse, null proposals, and model/FFmpeg failures. Phase 6 adds HTTP boundary and subprocess tests plus retry after failed database startup; 97 tests pass.
 - [x] Exercise request/model schemas, ID/path traversal rejection, bounded input/output sizes and subprocess argument safety. Verify HTTPS trust/name rejection and document the trusted-LAN deployment boundary: the unauthenticated server is not suitable for public exposure.
 - [x] Run the Central Park 1932 example end to end using real local Qwen/Medium models and four generated beds; record readiness, inference calls, resource samples and decoded levels with `pnpm acceptance:run`. Four-minute decoding and accelerated opportunities are explicitly separate from a production-cadence soak.

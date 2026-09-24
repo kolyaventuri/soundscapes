@@ -60,6 +60,12 @@ export const listenerSessionSchema = z.object({
 	listenerId: z.uuid(),
 	streamUrl: z.string(),
 });
+export const sessionLimit = 4;
+export const sessionSummarySchema = sessionSchema.pick({
+	id: true, title: true, status: true, ready: true, listenerCount: true, createdAt: true, generationMode: true, error: true,
+});
+export const sessionListSchema = z.object({sessions: z.array(sessionSummarySchema).max(sessionLimit), limit: z.literal(sessionLimit)});
+export type SessionSummary = z.infer<typeof sessionSummarySchema>;
 export type SessionStatus = z.infer<typeof sessionStatusSchema>;
 export type Session = z.infer<typeof sessionSchema>;
 export type ListenerSession = z.infer<typeof listenerSessionSchema>;

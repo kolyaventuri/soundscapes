@@ -22,7 +22,7 @@ export async function request<T>(
 			typeof body.message === 'string'
 				? body.message
 				: `Request failed (${response.status})`;
-		throw new Error(message);
+		throw new ApiError(response.status, message);
 	}
 
 	return schema.parse(body);
@@ -40,5 +40,14 @@ async function connect(url: string, options: RequestInit) {
 		}
 
 		throw error;
+	}
+}
+
+export class ApiError extends Error {
+	constructor(
+		public statusCode: number,
+		message: string,
+	) {
+		super(message);
 	}
 }

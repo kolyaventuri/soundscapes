@@ -4,7 +4,7 @@ import {
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
-import {listenerSessionSchema, sceneSchema} from '@soundscapes/shared';
+import {listenerSessionSchema, sceneSchema, sessionListSchema} from '@soundscapes/shared';
 import {
 	afterEach, expect, it, vi,
 } from 'vitest';
@@ -76,6 +76,55 @@ it('bounds preparation, stays idle without listeners, and never treats polling a
 	await manager.sweep();
 	expect(factory).toHaveBeenCalledTimes(1);
 	expect(renderers.every(renderer => !renderer.running)).toBe(true);
+});
+
+it('lists orphaned and failed sessions, frees capacity after closing, and never renews demand', async () => {
+	const planner: Planner = {
+		busy: false, parseScene: vi.fn(async () => {
+			throw new Error('Planning failed');
+		}), propose: vi.fn(),
+	};
+	const {manager, config, advance, factory} = await setup(planner);
+	const failed = manager.create('ambience', 'An unavailable scene');
+	await vi.waitFor(() => {
+		expect(manager.get(failed.session.id).status).toBe('error');
+	});
+	const owners = Array.from({length: 3}, () => manager.create());
+	await Promise.all(owners.map(async owner => manager.play(owner.session.id, owner.listenerId)));
+	await manager.pause(owners[0]!.session.id, owners[0]!.listenerId);
+	const app = await buildApp({config, sessions: manager});
+	try {
+		advance(89_000);
+		const response = await app.inject('/api/sessions');
+		expect(response.statusCode).toBe(200);
+		expect(response.headers['cache-control']).toBe('no-store');
+		const listing = sessionListSchema.parse(response.json());
+		expect(listing.limit).toBe(4);
+		expect(listing.sessions).toHaveLength(4);
+		expect(listing.sessions.find(session => session.id === failed.session.id)?.status).toBe('error');
+		expect(response.body).not.toContain('listenerId');
+		expect(response.body).not.toContain('streamUrl');
+		const calls = factory.mock.calls.length;
+		advance(1001);
+		await manager.sweep();
+		expect(manager.list().sessions.filter(session => session.status === 'idle')).toHaveLength(3);
+		expect(factory).toHaveBeenCalledTimes(calls);
+		const blocked = await app.inject({method: 'POST', url: '/api/sessions', payload: {mode: 'fixture'}});
+		expect(blocked.statusCode).toBe(409);
+		const closed = await app.inject({method: 'POST', url: `/api/sessions/${failed.session.id}/stop`});
+		expect(closed.statusCode).toBe(200);
+		expect(manager.list().sessions.some(session => session.id === failed.session.id)).toBe(false);
+		const created = await app.inject({method: 'POST', url: '/api/sessions', payload: {mode: 'fixture'}});
+		expect(created.statusCode).toBe(202);
+		await Promise.all(manager.list().sessions.map(async session => {
+			const result = await app.inject({method: 'POST', url: `/api/sessions/${session.id}/stop`});
+			expect(result.statusCode).toBe(200);
+		}));
+		const empty = await app.inject('/api/sessions');
+		expect(empty.json()).toEqual({sessions: [], limit: 4});
+	} finally {
+		await app.close();
+	}
 });
 
 it('persists level changes without restarting a producer or renewing listener activity', async () => {
