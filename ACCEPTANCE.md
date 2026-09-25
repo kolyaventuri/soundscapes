@@ -1,6 +1,6 @@
 # v0.1 verification record
 
-Phase 6 separates automated behavior, real local inference, and physical listening. Passing the first two does not complete v0.1. The measured eight-hour laptop soak passed for layered ambience/effects playback on 2026-09-24; remaining device and listening gates are in [PLAN.md](PLAN.md). Advanced layering is an optional prototype with separate fidelity acceptance.
+Phase 6 separates automated behavior, real local inference, and physical listening. Passing the first two does not complete v0.1. The measured eight-hour laptop soak passed on 2026-09-24, followed by eight-hour locked-iPhone speaker endurance on 2026-09-25. Remaining Bluetooth-output and listening gates are in [PLAN.md](PLAN.md). Advanced layering is an optional prototype with separate fidelity acceptance.
 
 ## Repeatable checks
 
@@ -176,3 +176,14 @@ An isolated Chrome preview with scripted planner/audio adapters and real FFmpeg 
 The user reports that the five-minute diagnostic completed successfully, including deliberate-pause checks, with no apparent problems. This passes the reported short PWA preflight. The raw recording summary, exact device/OS/output details and sample counts were not supplied or reviewed for this report; intentional pauses must remain distinct from uninterrupted-playback evidence.
 
 A separate test device is planned for an uninterrupted eight-hour run with newly prepared audio. Normal-use sleep buds will retain their usual idle/sleep behavior. Record the endurance device's actual output: speaker playback establishes that path, while Bluetooth playback establishes the tested Bluetooth path. Do not infer eight-hour sleep-bud endurance from either a different output or shorter normal-use listening. The eight-hour gate remains pending.
+
+
+## Eight-hour locked-iPhone speaker endurance — 2026-09-25
+
+**Passed for the tested speaker path.** The user supplied a completed eight-hour PWA diagnostic labeled iPhone 12 / iOS 26 and confirmed speaker output, a locked screen during the run, and normal audio still playing after completion. The summary and all 961 retained raw samples were reviewed: every sample was complete and active, with no recorded issues or collection errors, one server instance and one encoder run. The scene clock advanced through the full interval. Buffer levels stayed within design bounds; server memory, PCM queues, session storage, HLS retention and independent ambience/effects schedules remained bounded. Raw artifacts remain under ignored `data/soaks/`.
+
+The recorder checkout was clean at `8b3277c`; the manifest identifies FFmpeg 9.0.2. Checkout provenance does not certify the running server build. Device/OS/output and screen-lock facts are user-reported; the user-agent string is not treated as authoritative OS identification. Server telemetry observed one or two listeners and cannot independently attribute every consumed segment to a particular device.
+
+This session reused its existing four ambience and six effect assets. Its inference counters were zero because they are scoped to the recorded session, not ordinary scheduled reuse of an existing pool. Time-filtered lifecycle events show **six successful audio-generation completions for another session during the recording**. The shared sound worker was briefly busy, explaining its nonzero sampled memory/CPU despite zero generation counters for the monitored session. This supplies brief concurrent-generation/stream-stability evidence; it does not establish sustained model load or ongoing event generation in the recorded scene.
+
+Speaker endurance does not establish eight-hour Bluetooth sleep-bud endurance. Prior shorter Bluetooth and normal-use listening checks remain valid separately. Periodic server samples cannot prove continuous audible output, exclude every short client stall, or establish subjective mix quality. No external Ollama/GPU or browser resource capture was available. The separate Bluetooth-output and final listening gates remain open; v0.1 is not declared complete by this result alone. This review changed documentation only and did not alter playback, generation, or running processes.
