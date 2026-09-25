@@ -145,9 +145,11 @@ Enable **Layered scene (advanced)** to plan layers from the same single descript
 | Ambience | 90 seconds | 4 | 4 |
 | Music | 120 seconds | 2 | 3 |
 | Human activity / crowd | 75 seconds | 2 | 3 |
-| Effects | 10 seconds | 2 | 6 |
+| Effects | 2–10 seconds, one source per recording | 2–4, covering each source | 6 |
 
 Only appropriate layers are selected. Available capacity and playback buffer allow pools to expand in the background; expansion stops at their limits. The output remains one HLS stream. Optional generation failures preserve the usable scene and surface a warning.
+
+Describe frequency separately for each effect: “frequent cup clinks, occasional espresso sounds, and a rare horn.” Each source gets its own timing: frequent uses 20–45-second gaps, occasional 45–120 seconds, and rare 3–7 minutes. The first occurrence also waits within its range. Effects wait for one another with at least five seconds of quiet between recordings, so a busy mix may lengthen a gap. Loudness does not imply frequency. Fresh sessions use these policies; existing sessions keep their saved schedules. `pnpm session:prompts SESSION_UUID` shows the interpreted source captions and gaps.
 
 Layering is experimental: clean source isolation, precise distance, intelligible dialogue, and matching musical key/tempo/phrasing are not guaranteed. Generated audio receives format validation, normalization, and peak protection, but numerical checks do not establish listening quality.
 
@@ -214,6 +216,8 @@ pnpm lan:smoke           # HTTPS and recorder trust checks
 ```
 
 For real local models, use `pnpm planner:smoke`, `pnpm sound:smoke --scene`, `pnpm audio:layers --real`, or `pnpm acceptance:run`. The last command runs a short integrated generation/playback/recovery check with accelerated events. These checks do not replace human listening or physical-device endurance tests.
+
+`pnpm planner:smoke --policies` runs the focused real-model regression for per-source effect frequency and exclusions such as retaining creek/espresso sounds while excluding rain/horns. The full planner smoke includes these checks.
 
 Inspect `/api/debug/sessions/<SESSION_UUID>` for playback buffers, listener activity, planning, and worker state. `/api/debug/assets?offset=0&limit=25` provides paged asset metadata. Debug reads do not renew playback activity.
 

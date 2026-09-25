@@ -8,12 +8,22 @@ import {loadEnvironment, readConfig} from '../config.js';
 import {OllamaPlanner} from '../planning/ollama.js';
 import {writeJson} from '../monitoring/storage.js';
 import {
-	checkLayerPlans, cafePrompt, rainPrompt, creekPrompt,
+	checkLayerPlans, checkSourcePolicies, cafePrompt, rainPrompt, creekPrompt,
 } from './layer-regression.js';
 
 loadEnvironment();
 const config = readConfig();
 const planner = new OllamaPlanner(config.planner);
+if (process.argv.includes('--policies')) {
+	const result = await checkSourcePolicies(planner, new AbortController().signal);
+	const file = path.join(config.dataDirectory, 'planner-checks', `${Date.now()}-policies.json`);
+	await mkdir(path.dirname(file), {recursive: true});
+	await writeJson(file, result);
+	console.log(`PASS: source-specific exclusions and independent rare/occasional/frequent effect policies. Evidence: ${file}`);
+	// eslint-disable-next-line unicorn/no-process-exit -- All requests and writes are awaited.
+	process.exit(0);
+}
+
 if (process.argv.includes('--scenes')) {
 	const {signal} = new AbortController();
 	const creek = await planner.parseScene(creekPrompt, signal);
@@ -147,10 +157,11 @@ try {
 	assert.ok(creek.allowedEventCategories.includes('birds'));
 	assert.ok(!creek.allowedEventCategories.includes('objects'));
 	const layers = await checkLayerPlans(planner, signal, cafe, defaulted);
+	const sourcePolicies = await checkSourcePolicies(planner, signal);
 	const result = {
 		at: new Date().toISOString(), model: config.planner.model, sceneMs, nullMs, eventMs,
 		maximumModelBytes, maximumGpuBytes, scene, empty, proposal, generatedProposal, generationProposalMs,
-		defaulted, cafe, sleepCafe, awakeCafe, creek, ...layers,
+		defaulted, cafe, sleepCafe, awakeCafe, creek, ...layers, sourcePolicies,
 		note: 'Real local model calls. Memory is sampled Ollama-reported model/VRAM allocation, not total host usage or an overnight result.',
 	};
 	const directory = path.join(config.dataDirectory, 'planner-checks');

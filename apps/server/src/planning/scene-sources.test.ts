@@ -25,3 +25,14 @@ it('keeps occasional birds out of the bed and bounds complete captions without t
 	expect(bounded.audioPrompt).toHaveLength(647);
 	expect(sceneSchema.shape.ambiencePrompt.parse(bounded.ambiencePrompt)).toBe(bounded.audioPrompt);
 });
+
+it('retains allowed sources while removing excluded members of the same category', () => {
+	const result = compileSceneSources([
+		{caption: 'A flowing creek.', timing: 'ongoing', category: 'water'},
+		{caption: 'Rain on leaves.', timing: 'ongoing', category: 'water'},
+		{caption: 'A brief espresso hiss.', timing: 'occasional', category: 'machinery'},
+		{caption: 'A foghorn blast.', timing: 'occasional', category: 'machinery'},
+	], 'A creek beside a cafe. No rain or horns.');
+	expect(result.audioPrompt).toBe('A flowing creek. A brief espresso hiss.');
+	expect(result.allowedEventCategories).toEqual(['water', 'machinery']);
+});

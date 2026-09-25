@@ -81,3 +81,27 @@ export async function checkLayerPlans(planner: OllamaPlanner, signal: AbortSigna
 		layeredCafe, layeredRain, layeredBand, layeredBeach, neighborhood, cruise,
 	};
 }
+
+export async function checkSourcePolicies(planner: OllamaPlanner, signal: AbortSignal) {
+	const creek = await planner.parseScene('A creek flowing over stones beside a cafe. Occasional espresso hisses. No rain or horns, but keep the creek and espresso.', signal);
+	assert.match(creek.audioPrompt, /creek|water|stream/i);
+	assert.match(creek.audioPrompt, /espresso|steam/i);
+	assert.ok(creek.allowedEventCategories.includes('water'));
+	assert.ok(creek.allowedEventCategories.includes('machinery'), JSON.stringify(creek));
+	assert.doesNotMatch(creek.audioPrompt, /rain|horn/i);
+	const plan = await planner.planLayers({
+		...creek, originalPrompt: 'On a cruise ship cafe deck, steady distant conversation and quiet background music. '
+			+ 'Frequent single cup clinks, occasional espresso steam, and a very rare loud foghorn blast once every several minutes. No rain.',
+	}, signal);
+	const effects = plan.layers.find(layer => layer.id === 'effects')!.effectSources!;
+	const horn = effects.find(source => /horn/i.test(source.prompt))!;
+	const cups = effects.find(source => /cup|clink/i.test(source.prompt))!;
+	const espresso = effects.find(source => /espresso|steam/i.test(source.prompt))!;
+	assert.deepEqual(horn.gapSeconds, {minimum: 180, maximum: 420}, JSON.stringify(plan));
+	assert.deepEqual(cups.gapSeconds, {minimum: 20, maximum: 45});
+	assert.deepEqual(espresso.gapSeconds, {minimum: 45, maximum: 120});
+	assert.ok(plan.layers.some(layer => layer.id === 'music'));
+	assert.ok(plan.layers.some(layer => layer.id === 'activity'));
+	assert.doesNotMatch(plan.layers.map(layer => layer.prompt).join(' '), /rain/i);
+	return {creek, plan};
+}

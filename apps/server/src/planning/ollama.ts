@@ -46,7 +46,9 @@ export class OllamaPlanner implements Planner {
 			+ 'For window rain, describe droplets pattering against glass and eave drips from indoors. For crowds describe blended overlapping murmur, without a featured speaker.',
 			'category identifies that source: water for flowing water/rain/waves, leaves for leaf rustling, wind for wind, insects for insect calls, birds for bird calls. '
 			+ 'objects is ONLY discrete man-made object impacts such as cup clinks or a door closing; water over stones and rustling leaves are NOT objects. '
-			+ 'machinery is machine operations or horns; distant-footsteps and distant-wheels identify those specific sounds. '
+			+ 'machinery is machine operations (including espresso steam/hissing) or horns; distant-footsteps and distant-wheels identify those specific sounds. '
+			+ 'Categories describe each INCLUDED source, even if a different source in the same category is excluded. '
+			+ 'No horns does NOT change an espresso hiss from machinery to none. No rain does NOT remove water from a requested creek. '
 			+ 'Use none for music or crowd conversation; never misclassify these as objects. Other categories must match their source. '
 			+ 'A source with no matching category uses none. Do not invent a source to fill a category.',
 			'Light wind permits wind and leaves sounds unless the user excludes them. Description must not add facts absent from the original prompt.',
@@ -56,7 +58,7 @@ export class OllamaPlanner implements Planner {
 			schema, system: instruction, input: {originalPrompt: prompt, sleepModeOverride: sleepMode ?? null}, signal, temperature: 0,
 		});
 
-		const captions = compileSceneSources(result.audibleSources);
+		const captions = compileSceneSources(result.audibleSources, prompt);
 		return sceneSchema.parse({
 			...result, ...captions, ...explicitCalendar(prompt, result.year), originalPrompt: prompt, sleepMode: sleepMode ?? result.sleepMode,
 			allowedEventCategories: captions.allowedEventCategories.filter(category => !explicitlyExcluded(prompt, category)),
@@ -132,6 +134,9 @@ export class OllamaPlanner implements Planner {
 				'Each occasionalEffects item describes ONE source, never combine espresso and cups in one item. '
 				+ 'Use a singular action: one ceramic cup lightly touches a saucer, or one distant bird call. Preserve an explicitly requested count. '
 				+ 'durationSeconds is 2-4 for a clink/bird call, 5-10 for a horn blast or brief machine operation. Include natural decay and quiet, not repeated bursts.',
+				'frequency belongs to EACH effect source: rare for rarely/very occasionally/once every several minutes (3-7 minute gaps), '
+				+ 'occasional for occasionally/every now and then/unspecified (45-120 second gaps), frequent for frequently/often (20-45 second gaps). '
+				+ 'Never infer frequency from loudness. A rare loud horn stays rare even alongside frequent quiet cup clinks.',
 				'For a cafe with brief espresso, occasional clinks, conversation and jazz: continuousEnvironment=[], music=jazz, '
 				+ 'humanActivity=conversation ONLY, occasionalEffects=[one espresso operation, one cup clink]. '
 				+ 'Ongoing crowd conversation NEVER belongs in occasionalEffects; a separate cup effect must not be copied into the conversation caption.',
@@ -153,7 +158,7 @@ export class OllamaPlanner implements Planner {
 				'Respect explicit exclusions and sleep mode without removing requested sounds. Check source coverage, isolation and correct field assignment before returning JSON.',
 			].join(' '),
 		});
-		return compileLayerSources(result);
+		return compileLayerSources(result, scene.originalPrompt);
 	}
 
 	private async request<T>({schema, system, input, signal, temperature = 0.3, maximumTokens = 1400, timeoutMs = this.config.timeoutMs}: {

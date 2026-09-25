@@ -19,7 +19,7 @@ const proposal: EventProposal = {
 };
 
 function harness(propose: Planner['propose'], timeoutMs = 1000, skipProbability = 0, generation?: {
-	generate: (proposal: EventProposal, signal: AbortSignal, deadlineAt: number) => Promise<typeof asset>; library?: Array<typeof asset>;
+	generate: (proposal: EventProposal, signal: AbortSignal, deadlineAt: number) => Promise<typeof asset>; library?: Array<typeof asset>; scene?: typeof scene;
 }) {
 	const generate = generation?.generate;
 	const library = generation?.library ?? [asset];
@@ -33,7 +33,7 @@ function harness(propose: Planner['propose'], timeoutMs = 1000, skipProbability 
 		...(generate ? {generate} : {}),
 		assets: () => library, active: () => active, changed: vi.fn(), schedule, log,
 		context: () => ({
-			scene, simulatedTime: scene.simulatedStart, elapsedMs: 0, recentEvents: [], ambientState: ['air'], library: [], earliestPlaybackMs: 121_000,
+			scene: generation?.scene ?? scene, simulatedTime: scene.simulatedStart, elapsedMs: 0, recentEvents: [], ambientState: ['air'], library: [], earliestPlaybackMs: 121_000,
 		}),
 	});
 	return {
@@ -178,4 +178,30 @@ it('discards generation finishing after pause, even if an adapter ignores cancel
 	complete(asset);
 	await Promise.resolve();
 	expect(schedule).not.toHaveBeenCalled();
+});
+
+it('filters excluded reuse and generated proposals while keeping another source in the same category', async () => {
+	const creek = {
+		...scene, sleepMode: false, originalPrompt: 'A creek. No rain, but keep the flowing water.', allowedEventCategories: ['water' as const],
+	};
+	const water = {...asset, title: 'A creek trickles', event: {...asset.event!, category: 'water' as const, tags: ['creek']}};
+	const rain = {
+		...water, id: randomUUID(), title: 'Rain on leaves', event: {...water.event, tags: ['rain']},
+	};
+	expect(eligibleAssets([water, rain], creek, [], 0)).toEqual([water]);
+	const generate = vi.fn(async () => water);
+	const rejected = harness(async () => ({
+		...proposal, assetId: null, category: 'water', event: 'Rain falls softly.',
+	}), 1000, 0, {generate, library: [], scene: creek});
+	rejected.controller.tick(0);
+	await rejected.controller.settled();
+	expect(generate).not.toHaveBeenCalled();
+	expect(rejected.schedule).not.toHaveBeenCalled();
+	const accepted = harness(async () => ({
+		...proposal, assetId: null, category: 'water', event: 'A creek trickles.',
+	}), 1000, 0, {generate, library: [], scene: creek});
+	accepted.controller.tick(0);
+	await accepted.controller.settled();
+	expect(generate).toHaveBeenCalledOnce();
+	expect(accepted.schedule).toHaveBeenCalledOnce();
 });

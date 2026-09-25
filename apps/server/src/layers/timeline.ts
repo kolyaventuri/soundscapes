@@ -5,6 +5,8 @@ import {
 import {z} from 'zod';
 import {bedSchema, type Bed} from '../ambience/timeline.js';
 import {type Asset} from '../persistence/store.js';
+import {appendClip, chooseAsset, draw} from './clips.js';
+import {effectScheduleSchema, effectDelay, extendEffects} from './effects.js';
 
 export const layerStateSchema = z.object({
 	policy: layerPolicySchema, seed: z.number().int().min(0).max(0xFF_FF_FF_FF),
@@ -13,6 +15,7 @@ export const layerStateSchema = z.object({
 	nextStartMs: z.number().nonnegative(), recent: z.array(z.uuid()).max(6),
 	state: z.enum(['waiting', 'generating', 'ready', 'unavailable']), warning: z.string().max(300).nullable(),
 	expansionFailed: z.boolean().default(false),
+	effectSchedule: effectScheduleSchema.optional(),
 });
 export const layeredStateSchema = z.object({plan: layerPlanSchema, layers: z.array(layerStateSchema).min(1).max(4)});
 export type LayerState = z.infer<typeof layerStateSchema>;
@@ -60,6 +63,11 @@ function validateEffectSources(layer: LayerPolicy) {
 	if (layer.effectSources && (layer.id !== 'effects' || layer.effectSources.some(source => source.gain > layer.gain))) {
 		throw new Error('Isolated effect sources require an effects layer with sufficient gain headroom');
 	}
+
+	const gaps = layer.effectSources?.map(source => source.gapSeconds) ?? [];
+	if (gaps.some(Boolean) && (gaps.some(gap => !gap) || gaps.some(gap => gap!.minimum > gap!.maximum))) {
+		throw new Error('Effect source gap policies must be complete and ordered');
+	}
 }
 
 export function createLayeredState(value: LayerPlan, seed: number): LayeredState {
@@ -76,14 +84,20 @@ export function createLayeredState(value: LayerPlan, seed: number): LayeredState
 			// Ongoing sources form the scene immediately. Their different durations
 			// and fades still keep subsequent boundaries independent.
 			layer.nextStartMs = policy.playback === 'continuous' ? 0 : 7000 + Math.floor(draw(layer) * (policy.id === 'effects' ? 45_000 : 24_000));
+			if (policy.effectSources?.every(source => source.gapSeconds)) {
+				layer.nextStartMs = 0;
+				layer.effectSchedule = {
+					throughMs: 0, clocks: policy.effectSources.map((source, index) => {
+						const clock = {seed: createHash('sha256').update(`${seed}:effect:${index}`).digest().readUInt32LE(), nextStartMs: 0, recent: []};
+						clock.nextStartMs = effectDelay(source.gapSeconds!, clock);
+						return clock;
+					}),
+				};
+			}
+
 			return layer;
 		}),
 	};
-}
-
-function draw(layer: LayerState) {
-	layer.seed = (Math.imul(layer.seed, 1_664_525) + 1_013_904_223 + 4_294_967_296) % 4_294_967_296;
-	return layer.seed / 0x1_00_00_00_00;
 }
 
 export function extendLayers(state: LayeredState, assets: Asset[], {untilMs, playbackMs, selected}: {untilMs: number; playbackMs: number; selected: (asset: Asset) => void}) {
@@ -111,30 +125,14 @@ export function extendLayers(state: LayeredState, assets: Asset[], {untilMs, pla
 			throw new Error(`No playable assets for ${layer.policy.id}`);
 		}
 
-		while (layer.nextStartMs < untilMs) {
-			if (layer.clips.length >= 192) {
-				throw new Error('Layer history exceeded its bound');
-			}
+		if (layer.effectSchedule) {
+			extendEffects(layer, pool, untilMs, selected);
+			continue;
+		}
 
-			// A bounded recent-clip cooldown grows with the pool, while always leaving choices.
-			const cooldown = new Set(layer.recent.slice(-Math.min(Math.max(0, pool.length - 1), layer.policy.id === 'effects' ? 3 : 2)));
-			const candidates = pool.length > 1 ? pool.filter(asset => !cooldown.has(asset.id)) : pool;
-			const weighted = candidates.map(asset => ({asset, weight: layer.recent.includes(asset.id) ? 1 : 4}));
-			let remaining = draw(layer) * weighted.reduce((sum, item) => sum + item.weight, 0);
-			const {asset} = weighted.find(item => {
-				remaining -= item.weight;
-				return remaining < 0;
-			}) ?? weighted.at(-1)!;
-			const fadeMs = Math.min(layer.policy.fadeSeconds * 1000, asset.durationMs / 4);
-			const sourceGain = asset.generation?.layerGain ?? 1;
-			const gain = layer.mixGain * sourceGain * (1 - layer.policy.variability + (draw(layer) * layer.policy.variability * 2));
-			layer.clips.push({
-				assetId: asset.id, startMs: layer.nextStartMs, durationMs: asset.durationMs,
-				// Establish the intended balance together; a faster music fade must not
-				// overpower a crowd that is still spending ten seconds fading in.
-				fadeInMs: layer.nextStartMs === 0 ? Math.min(2000, fadeMs) : fadeMs, fadeOutMs: fadeMs, gain,
-			});
-			layer.recent = [...layer.recent, asset.id].slice(-6);
+		while (layer.nextStartMs < untilMs) {
+			const asset = chooseAsset(pool, layer, layer.policy.id === 'effects' ? 3 : 2);
+			const fadeMs = appendClip(layer, asset, layer.nextStartMs, layer);
 			const gap = layer.policy.playback === 'continuous'
 				? -fadeMs
 				: (layer.policy.gapSeconds.minimum + (draw(layer) * (layer.policy.gapSeconds.maximum - layer.policy.gapSeconds.minimum))) * 1000;

@@ -87,7 +87,12 @@ const planner: Planner = {
 	},
 	async planLayers() {
 		planned++;
-		return testPlan;
+		const plan = structuredClone(testPlan);
+		for (const [index, source] of plan.layers.at(-1)!.effectSources!.entries()) {
+			source.gapSeconds = index === 0 ? {minimum: 20, maximum: 45} : {minimum: 45, maximum: 120};
+		}
+
+		return plan;
 	},
 	async propose() {
 		throw new Error('Layer transitions must not request event planning');
@@ -139,7 +144,7 @@ try {
 	const beach = real && process.argv.includes('--beach');
 	const prompt = beach
 		? beachPrompt
-		: 'Inside a cozy café, soft jazz piano plays continuously, indistinct conversation fills the room, with brief occasional espresso machine sounds and occasional single cup clinks on tables.';
+		: 'Inside a cozy café, soft jazz piano plays continuously, indistinct conversation fills the room, with brief occasional espresso machine sounds and frequent single cup clinks on tables.';
 	const started = Date.now();
 	const owner = manager!.create('ambience', prompt, false, 'layered');
 	console.log(`Layered smoke: ${origin}/?session=${owner.session.id} · ${directory}`);
@@ -154,6 +159,8 @@ try {
 		const {plan} = manager!.debug(owner.session.id).layeredTimeline!;
 		assert.doesNotMatch(plan.layers.find(layer => layer.id === 'ambience')!.prompt, /espresso|steam|clink/i);
 		const sources = plan.layers.find(layer => layer.id === 'effects')!.effectSources!;
+		assert.deepEqual(sources.find(source => /cup|clink/i.test(source.prompt))!.gapSeconds, {minimum: 20, maximum: 45});
+		assert.deepEqual(sources.find(source => /espresso|steam/i.test(source.prompt))!.gapSeconds, {minimum: 45, maximum: 120});
 		assert.ok(sources.some(source => /espresso|steam/i.test(source.prompt) && !/cup|clink/i.test(source.prompt)));
 		assert.ok(sources.some(source => /cup|clink/i.test(source.prompt) && !/espresso|steam/i.test(source.prompt)));
 		const effects = store!.assets().filter(asset => asset.generation?.layerId === 'effects');
@@ -163,6 +170,7 @@ try {
 		}
 	}
 
+	assert.ok(manager!.debug(owner.session.id).layeredTimeline!.layers.find(layer => layer.policy.id === 'effects')!.effectSchedule);
 	const {layers} = manager!.debug(owner.session.id);
 	assert.ok(layers.some(layer => layer.id === 'music') && layers.some(layer => layer.id === 'activity'));
 	assert.ok(layers.every(layer => layer.state === 'ready' || (!layer.required && layer.state === 'unavailable')));

@@ -1,6 +1,7 @@
 import {z} from 'zod';
 import {type LayerPolicy} from '@soundscapes/shared';
 import {validatePlan} from '../layers/timeline.js';
+import {excludesSound} from './scene-constraints.js';
 
 // Keep the model focused on audible content. Acoustic context is closed
 // vocabulary so it cannot reintroduce all the other sources into every stem.
@@ -13,7 +14,9 @@ const passageSchema = sourceSchema.extend({continuity: z.enum(['ongoing', 'occas
 export const layerSourcesSchema = z.strictObject({
 	space: z.enum(['open-air', 'small-room', 'large-room']),
 	continuousEnvironment: z.array(sourceSchema).max(4), music: passageSchema.nullable(), humanActivity: passageSchema.nullable(),
-	occasionalEffects: z.array(sourceSchema.extend({durationSeconds: z.number().int().min(2).max(10).default(4)})).max(4),
+	occasionalEffects: z.array(sourceSchema.extend({
+		durationSeconds: z.number().int().min(2).max(10).default(4), frequency: z.enum(['rare', 'occasional', 'frequent']).default('occasional'),
+	})).max(4),
 });
 
 const acoustics = {
@@ -41,8 +44,19 @@ function sourcePolicy(id: LayerPolicy['id'], sources: Source[], continuous: bool
 	};
 }
 
-export function compileLayerSources(value: unknown) {
+export function compileLayerSources(value: unknown, prompt = '') {
 	const inventory = layerSourcesSchema.parse(value);
+	const permitted = (source: Source) => !excludesSound(prompt, `${source.name}. ${source.caption}`);
+	inventory.continuousEnvironment = inventory.continuousEnvironment.filter(source => permitted(source));
+	inventory.occasionalEffects = inventory.occasionalEffects.filter(source => permitted(source));
+	if (inventory.music && !permitted(inventory.music)) {
+		inventory.music = null;
+	}
+
+	if (inventory.humanActivity && !permitted(inventory.humanActivity)) {
+		inventory.humanActivity = null;
+	}
+
 	const groups = {
 		ambience: inventory.continuousEnvironment,
 		music: inventory.music ? [inventory.music] : [],
@@ -62,6 +76,9 @@ export function compileLayerSources(value: unknown) {
 		if (id === 'effects') {
 			policy.effectSources = inventory.occasionalEffects.map(source => ({
 				prompt: `${source.name}. ${source.caption}`, durationSeconds: source.durationSeconds, gain: sourceGain(id, source),
+				gapSeconds: {
+					rare: {minimum: 180, maximum: 420}, occasional: {minimum: 45, maximum: 120}, frequent: {minimum: 20, maximum: 45},
+				}[source.frequency],
 			}));
 		}
 

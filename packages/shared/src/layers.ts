@@ -14,6 +14,8 @@ export const layerPolicySchema = z.strictObject({
 	// one independently generated source per recording.
 	effectSources: z.array(z.strictObject({
 		prompt: z.string().trim().min(1).max(302), durationSeconds: z.number().int().min(2).max(10), gain: z.number().min(0.05).max(1),
+		// Absent on older plans, which keep their original shared effects clock.
+		gapSeconds: z.strictObject({minimum: z.number().int().min(20).max(300), maximum: z.number().int().min(20).max(600)}).optional(),
 	})).min(1).max(4).optional(),
 });
 export const layerPlanSchema = z.strictObject({acoustics: z.string().trim().min(1).max(240), layers: z.array(layerPolicySchema).min(1).max(4)});

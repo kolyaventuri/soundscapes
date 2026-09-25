@@ -1,5 +1,6 @@
 import {z} from 'zod';
 import {eventCategorySchema} from '@soundscapes/shared';
+import {excludesSound} from './scene-constraints.js';
 
 // One inventory supplies both captions, preventing a separate bed summary from
 // silently dropping requested ongoing sounds. Eight 80-character captions fit 650.
@@ -9,10 +10,10 @@ export const sceneSourcesSchema = z.array(z.strictObject({
 	category: eventCategorySchema.or(z.literal('none')),
 })).min(1).max(8);
 
-export function compileSceneSources(value: unknown) {
-	const sources = sceneSourcesSchema.parse(value);
+export function compileSceneSources(value: unknown, prompt = '') {
+	const sources = sceneSourcesSchema.parse(value).filter(source => !excludesSound(prompt, source.caption, source.category === 'none' ? undefined : source.category));
 	return {
-		audioPrompt: sources.map(source => source.caption).join(' '),
+		audioPrompt: sources.map(source => source.caption).join(' ') || 'Faint steady air in a quiet acoustic space.',
 		ambiencePrompt: sources.filter(source => source.timing === 'ongoing').map(source => source.caption).join(' ') || 'Faint steady air in a quiet acoustic space.',
 		allowedEventCategories: [...new Set(sources.flatMap(source => source.category === 'none' ? [] : [source.category]))],
 	};

@@ -47,24 +47,95 @@ function explicitClock(prompt: string) {
 	return {hour, minute};
 }
 
-// Exclusions are user-authored. Models can otherwise turn requested sources into bans.
-export function explicitSoundConstraints(prompt: string) {
-	return [...new Set([...prompt.matchAll(/\b(?:no|without|avoid|exclude|do not include|don't include)\s+[^.;!?\n]+/gi)]
-		.map(match => match[0].trim().slice(0, 200)))].slice(0, 12);
+// Keep negative lists, but stop before an explicit positive/contrast clause.
+// The same spans let reused generation captions omit their appended exclusions.
+function exclusionSpans(prompt: string) {
+	const starts = [...prompt.matchAll(/\b(?:no|without|avoid|exclude|do not include|don't include)\s+/gi)];
+	return starts.map((match, index) => {
+		const clause = prompt.slice(match.index, starts[index + 1]?.index).split(/[.;!?\n]/)[0]!;
+		const text = clause.split(/\s*\b(?:but|yet|while|however|just|instead)\b|\s+and\s+(?=keep\b|include\b|allow\b)/i)[0]!.replace(/[,\s]+$/, '');
+		return {text, start: match.index, end: match.index + text.length};
+	});
 }
 
+export function explicitSoundConstraints(prompt: string) {
+	return [...new Set(exclusionSpans(prompt).map(span => span.text.slice(0, 200)))].slice(0, 12);
+}
+
+// A constraint on prominence/intelligibility is not a ban on the source itself.
+function sourceExclusions(prompt: string) {
+	return explicitSoundConstraints(prompt).flatMap(text => text
+		.replace(/^(?:no|without|avoid|exclude|do not include|don't include)\s+/i, '')
+		.split(/,|\band\b|\bor\b/i)
+		.map(term => term.trim())
+		.filter(term => !/\b(should|must|dominat\w*|loud|close|foreground|individual|intelligible|prominent|sharp|sudden)\b/i.test(term)));
+}
+
+function positiveSoundText(text: string) {
+	for (const span of exclusionSpans(text).reverse()) {
+		text = text.slice(0, span.start) + ' ' + text.slice(span.end);
+	}
+
+	return text;
+}
+
+// Only broad exclusions remove an entire event category. Specific excluded
+// sources are checked against actual captions/proposals/assets below.
 export function explicitlyExcluded(prompt: string, category: Scene['allowedEventCategories'][number]) {
-	const exclusions = explicitSoundConstraints(prompt).join(' ');
+	const exclusions = sourceExclusions(prompt);
 	const patterns = {
-		wind: /\bwind\b/i,
-		leaves: /\b(rustl\w*|leaves)\b/i,
-		water: /\b(rain|water|stream|waves|ocean)\b/i,
-		insects: /\b(insects?|animals?|wildlife|crickets?|bugs?)\b/i,
-		birds: /\b(birds?|animals?|wildlife|gulls?|chirp\w*)\b/i,
-		objects: /\b(clinks?|cups?|impacts?|objects?|tableware)\b/i,
-		machinery: /\b(machinery|machines?|appliances?|espresso|grinders?|horns?)\b/i,
-		'distant-footsteps': /\b(people|humans?|footsteps?|walkers?)\b/i,
-		'distant-wheels': /\b(vehicles?|traffic|cars?|wheels?|wagons?|carriages?)\b/i,
+		wind: /^(?:any |all )?wind(?: sounds?| noise)?$/i,
+		leaves: /^(?:any |all )?(rustl\w*|leaves)(?: sounds?| noise)?$/i,
+		water: /^(?:any |all )?water(?: sounds?| noise)?$/i,
+		insects: /^(?:any |all )?(insects?|animals?|wildlife|bugs?)(?: sounds?| noise)?$/i,
+		birds: /^(?:any |all )?(birds?|animals?|wildlife)(?: sounds?| noise)?$/i,
+		objects: /^(?:any |all )?(objects?|impacts?)(?: sounds?| noise)?$/i,
+		machinery: /^(?:any |all )?(machinery|machines?|appliances?)(?: sounds?| noise)?$/i,
+		'distant-footsteps': /^(?:any |all )?(people|humans?|footsteps?|walkers?)(?: sounds?| noise)?$/i,
+		'distant-wheels': /^(?:any |all )?(vehicles?|traffic|wheels?)(?: sounds?| noise)?$/i,
 	};
-	return patterns[category].test(exclusions);
+	return exclusions.some(term => patterns[category].test(term));
+}
+
+const soundFamilies = [
+	/\b(rain(?:fall|drops?)?|drizzle|downpour)\b/i,
+	/\b(thunder|thunderstorm)\w*\b/i,
+	/\b(creeks?|streams?|brooks?|rivers?|trickl\w*)\b/i,
+	/\b(waves?|surf|ocean|sea)\b/i,
+	/\b(?:wind )?gust\w*\b/i,
+	/\b(fog[ -]?horns?|horns?|honks?|honking)\b/i,
+	/\b(espresso|coffee machine|steam wand)\b/i,
+	/\b(grinders?|grinding)\b/i,
+	/\b(cups?|saucers?|clinks?|clinking|tableware|crockery)\b/i,
+	/\b(gulls?|seagulls?)\b/i,
+	/\b(crickets?)\b/i,
+	/\b(cars?|automobiles?)\b/i,
+	/\b(voices?|speech|talking|conversation|chatter|murmur|dialogue)\b/i,
+	/\bpiano\b/i,
+	/\bguitar\b/i,
+	/\bjazz\b/i,
+	/\b(singing|vocals?|lyrics?)\b/i,
+];
+const broadFamilies = [
+	{excluded: /^(?:any |all )?music$/i, sound: /\b(music|piano|jazz|guitar|singing|songs?|melody|melodies)\b/i},
+	{excluded: /^(?:any |all )?water(?: sounds?| noise)?$/i, sound: /\b(water|rain|creeks?|streams?|brooks?|rivers?|waves?|surf|drips?|splash\w*)\b/i},
+	{excluded: /^(?:any |all )?wind(?: sounds?| noise)?$/i, sound: /\b(wind|breeze|gust\w*)\b/i},
+	{excluded: /^(?:any |all )?(leaves|rustl\w*)(?: sounds?| noise)?$/i, sound: /\b(leaves|foliage|rustl\w*)\b/i},
+	{excluded: /^(?:any |all )?(animals?|wildlife|birds?)(?: sounds?| noise)?$/i, sound: /\b(birds?|gulls?|seagulls?|owls?|chirp\w*|birdsong)\b/i},
+	{excluded: /^(?:any |all )?(animals?|wildlife|insects?|bugs?)(?: sounds?| noise)?$/i, sound: /\b(insects?|bugs?|crickets?|cicadas?)\b/i},
+	{excluded: /^(?:any |all )?(machinery|machines?|appliances?)(?: sounds?| noise)?$/i, sound: /\b(machinery|machines?|appliances?|espresso|grinders?|horns?|foghorns?)\b/i},
+	{excluded: /^(?:any |all )?(objects?|impacts?)(?: sounds?| noise)?$/i, sound: /\b(impacts?|cups?|clinks?|clinking|doors?|tableware)\b/i},
+	{excluded: /^(?:any |all )?(people|humans?)(?: sounds?| noise)?$/i, sound: /\b(people|humans?|voices?|conversation|chatter|murmur|footsteps?)\b/i},
+	{excluded: /^(?:any |all )?(traffic|vehicles?|wheels?)(?: sounds?| noise)?$/i, sound: /\b(traffic|vehicles?|wheels?|cars?|wagons?|carriages?)\b/i},
+];
+
+export function excludesSound(prompt: string, caption: string, category?: Scene['allowedEventCategories'][number]) {
+	if (category && explicitlyExcluded(prompt, category)) {
+		return true;
+	}
+
+	const exclusions = sourceExclusions(prompt);
+	const sound = positiveSoundText(caption);
+	return soundFamilies.some(pattern => exclusions.some(term => pattern.test(term)) && pattern.test(sound))
+		|| broadFamilies.some(family => exclusions.some(term => family.excluded.test(term)) && family.sound.test(sound));
 }

@@ -73,13 +73,19 @@ function formatReport(report) {
 		lines.push('', heading(`── ${group.id.toUpperCase()} · ${group.policy?.title ?? 'Audio pool'} · ${group.assets.length} recordings ──`));
 		if (group.policy) {
 			const {policy} = group;
-			paragraph(`${policy.required ? 'Required' : 'Optional'} · ${policy.playback} · gaps ${policy.gapSeconds.minimum}–${policy.gapSeconds.maximum}s`
+			const independent = policy.effectSources?.every(source => source.gapSeconds);
+			paragraph(`${policy.required ? 'Required' : 'Optional'} · ${policy.playback} · ${independent ? 'independent source gaps' : `gaps ${policy.gapSeconds.minimum}–${policy.gapSeconds.maximum}s`}`
 				+ ` · fade ${policy.fadeSeconds}s · relative gain ${policy.gain}`);
 			if (policy.sourceEvidence?.length) {
 				section('   Source passages', policy.sourceEvidence.join(' / '));
 			}
 
 			section('   Planner’s layer caption', policy.prompt);
+			for (const [index, source] of (policy.effectSources ?? []).entries()) {
+				section(`   Effect source ${index + 1}`, source.prompt);
+				paragraph(`${source.durationSeconds}s recording · relative gain ${source.gain}`
+					+ (source.gapSeconds ? ` · ${source.gapSeconds.minimum}–${source.gapSeconds.maximum}s between this source’s occurrences; may wait for another effect` : ' · shared layer timing'));
+			}
 		}
 
 		// Variants often share a caption: print it once, but associate every WAV and seed.

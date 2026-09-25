@@ -895,7 +895,7 @@ export class SessionManager {
 				throw new Error('The local planner does not support layered scenes');
 			}
 
-			progress.begin('layers', `planner:${this.config.planner.model}:layers-v2`, 'understanding');
+			progress.begin('layers', `planner:${this.config.planner.model}:layers-v3`, 'understanding');
 			const bounded = AbortSignal.any([signal, AbortSignal.timeout(layerPlanningTimeout(this.config.planner.timeoutMs))]);
 			const plan = await abortable(this.planner.planLayers(session.scene, bounded), bounded);
 			session.layered = createLayeredState(plan, session.timeline.seed);

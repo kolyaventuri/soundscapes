@@ -94,3 +94,30 @@ it('keeps source and compiled layer inputs bounded', () => {
 	const policy = compileLayerSources(inventory).layers[0]!;
 	expect(() => layerPolicySchema.parse({...policy, prompt: 'x'.repeat(1251)})).toThrow();
 });
+
+it('compiles separate frequency policies and filters excluded sources before assigning source indexes', () => {
+	const plan = compileLayerSources({
+		...inventory, occasionalEffects: [
+			{
+				name: 'Horn', caption: 'One foghorn blast.', prominence: 'primary', frequency: 'rare',
+			},
+			{
+				name: 'Espresso', caption: 'One espresso steam hiss.', prominence: 'background', frequency: 'occasional',
+			},
+			{
+				name: 'Cup', caption: 'One cup clink.', prominence: 'distant', frequency: 'frequent',
+			},
+		],
+	}, 'A cafe. No horns.');
+	const sources = plan.layers.find(layer => layer.id === 'effects')!.effectSources!;
+	expect(sources.map(source => source.gapSeconds)).toEqual([{minimum: 45, maximum: 120}, {minimum: 20, maximum: 45}]);
+	expect(sources[0]!.prompt).toContain('Espresso');
+	const rare = compileLayerSources({
+		...inventory, occasionalEffects: [
+			{
+				name: 'Horn', caption: 'One foghorn blast.', prominence: 'primary', frequency: 'rare',
+			},
+		],
+	});
+	expect(rare.layers.at(-1)!.effectSources![0]!.gapSeconds).toEqual({minimum: 180, maximum: 420});
+});
