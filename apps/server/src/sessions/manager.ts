@@ -133,7 +133,9 @@ export class SessionManager {
 		this.now = now;
 		this.onEvent = onEvent;
 		this.planner = planner ?? new OllamaPlanner(config.planner);
-		this.generation = new GenerationService(config, store, soundGenerator);
+		this.generation = new GenerationService(config, store, soundGenerator, (event, sessionId, detail) => {
+			this.onEvent(event, sessionId, detail);
+		});
 		if (automaticWatchdog) {
 			this.timer = setInterval(() => {
 				void this.watchdog();

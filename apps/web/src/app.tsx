@@ -14,6 +14,7 @@ import {StreamLevel} from './level.js';
 import {OpenSessions} from './sessions.js';
 import {SceneDetails} from './scene-details.js';
 import {SceneLibrary} from './library.js';
+import {PlaybackDiagnostics} from './recordings.js';
 
 function restoreConnection() {
 	try {
@@ -531,6 +532,7 @@ export function App() {
 				) : null}
 				{error ? <a href="#sessions-title">Manage open sessions</a> : null}
 			</section>
+			<PlaybackDiagnostics session={session} />
 			<OpenSessions
 				currentId={id}
 				isBusy={busy}

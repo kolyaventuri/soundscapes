@@ -117,7 +117,18 @@ export class EventController {
 			}));
 			// Race even adapters that fail to honor cancellation; late results are never applied.
 			const planningSignal = AbortSignal.any([signal, AbortSignal.timeout(this.options.timeoutMs)]);
-			const proposal = eventProposalSchema.parse(await abortable(this.options.planner.propose(context, planningSignal), planningSignal));
+			this.options.log('planner-request-started');
+			let proposal: EventProposal;
+			try {
+				proposal = eventProposalSchema.parse(await abortable(this.options.planner.propose(context, planningSignal), planningSignal));
+			} catch (error) {
+				if (!abort.signal.aborted) {
+					this.options.log('planner-request-failed', String(error).slice(0, 1000));
+				}
+
+				throw error;
+			}
+
 			if (signal.aborted || !this.options.active()) {
 				return;
 			}

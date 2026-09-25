@@ -110,3 +110,19 @@ a { color: #cbd8b7; }
 .saved-scene-list .session-date { font-size: 12px; color: #9bafa7; }
 .library-pages { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; color: #becac6; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+
+.playback-diagnostics { margin: 0 auto 40px; padding: 24px 0 0; border-top: 1px solid #516b62; }
+.recording-form { display: grid; gap: 10px; margin-top: 20px; }
+.recording-form label { font-size: 13px; color: #becac6; }
+.recording-form input, .recording-form select { min-width: 0; width: 100%; min-height: 44px; border: 1px solid #809477; border-radius: 8px; background: #163031; color: #e9ecdf; font: inherit; font-size: 16px; padding: 12px; }
+.recording-form button { justify-self: start; margin-top: 8px; }
+.recording-form input:focus-visible, .recording-form select:focus-visible { outline: 2px solid #cbd8b7; outline-offset: 3px; }
+.recording-active { border: 1px solid #809477; border-radius: 12px; padding: 20px; font-size: 14px; line-height: 1.6; overflow-wrap: anywhere; }
+.recording-active progress { width: 100%; accent-color: #cbd8b7; height: 8px; }
+.recording-history h3 { font-size: 14px; font-weight: 500; margin-top: 24px; }
+.recording-details { border-top: 1px solid #ffffff18; padding: 12px 0; margin: 0; overflow-wrap: anywhere; }
+.recording-details > summary { color: #e9ecdf; font-size: 14px; min-height: 44px; }
+.recording-details > summary span { display: block; font-size: 12px; color: #aebfb5; padding-left: 16px; }
+.recording-download { display: inline-block; min-height: 44px; padding: 12px 0; }
+.inference-counts { display: grid; grid-template-columns: 1fr auto; gap: 6px 16px; }
+.inference-counts dd { margin: 0; font-variant-numeric: tabular-nums; }

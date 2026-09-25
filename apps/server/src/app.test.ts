@@ -16,6 +16,10 @@ it('serves the shared health contract alongside the built client without hiding 
 		const health = await app.inject('/api/health');
 		expect(health.statusCode).toBe(200);
 		expect(healthResponseSchema.safeParse(health.json()).success).toBe(true);
+		const recordings = await app.inject('/api/recordings');
+		expect(recordings.statusCode).toBe(200);
+		expect(recordings.headers['cache-control']).toBe('no-store');
+		expect(recordings.json()).toEqual({recordings: []});
 		const page = await app.inject('/');
 		expect(page.statusCode).toBe(200);
 		expect(page.headers['content-type']).toContain('text/html');

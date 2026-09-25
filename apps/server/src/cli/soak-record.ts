@@ -1,7 +1,6 @@
 /* eslint-disable no-await-in-loop -- Sampling and log rotation must remain serial and bounded. */
-import {execFile} from 'node:child_process';
 import {
-	mkdir, mkdtemp, rename, stat, writeFile,
+	mkdir, mkdtemp, rename, writeFile,
 } from 'node:fs/promises';
 import {
 	arch, hostname, platform, release,
@@ -9,13 +8,14 @@ import {
 import path from 'node:path';
 import process from 'node:process';
 import {setTimeout as delay} from 'node:timers/promises';
-import {parseArgs, promisify} from 'node:util';
+import {parseArgs} from 'node:util';
 import {z} from 'zod';
 import {
-	loadEnvironment, readConfig, repositoryRoot, type AppConfig,
+	loadEnvironment, readConfig,
 } from '../config.js';
 import {collectSample} from '../monitoring/sample.js';
 import {RotatingLog, writeJson} from '../monitoring/storage.js';
+import {captureProvenance} from '../monitoring/provenance.js';
 import {RunSummary} from '../monitoring/summary.js';
 
 const {values} = parseArgs({
@@ -192,22 +192,5 @@ function readOptions() {
 
 	return {
 		config, sessionId, hours, intervalSeconds, device, url,
-	};
-}
-
-async function captureProvenance(config: AppConfig) {
-	const execute = promisify(execFile);
-	const provenance = await Promise.allSettled([
-		execute('git', ['rev-parse', 'HEAD'], {cwd: repositoryRoot, timeout: 5000}),
-		execute('git', ['status', '--porcelain'], {cwd: repositoryRoot, timeout: 5000, maxBuffer: 64 * 1024}),
-		execute(config.ffmpegPath, ['-version'], {timeout: 5000, maxBuffer: 64 * 1024}),
-		stat(path.join(repositoryRoot, 'apps/server/dist/index.js')),
-	]);
-	const [revision, dirty, ffmpeg, build] = provenance;
-	return {
-		sourceRevisionAtRecorderStart: revision.status === 'fulfilled' ? revision.value.stdout.trim() : null,
-		sourceDirtyAtRecorderStart: dirty.status === 'fulfilled' ? dirty.value.stdout.trim().length > 0 : null,
-		builtEntryModifiedAt: build.status === 'fulfilled' ? build.value.mtime.toISOString() : null,
-		ffmpegVersion: ffmpeg.status === 'fulfilled' ? ffmpeg.value.stdout.split('\n')[0] : null,
 	};
 }

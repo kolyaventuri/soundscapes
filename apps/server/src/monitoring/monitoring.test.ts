@@ -157,3 +157,34 @@ it('rotates within a fixed disk budget and bounds filesystem scans without follo
 		await rm(directory, {recursive: true, force: true});
 	}
 });
+
+it('excludes earlier inference and initial journal overflow, but counts current-session failures once', () => {
+	const summary = new RunSummary(30, sessionId);
+	const initial = sample(900);
+	initial.runtime!.events = [{
+		sequence: 200, at: sample(800).at, event: 'planner-request-started', sessionId,
+	}];
+	initial.runtime!.latestSequence = 200;
+	summary.add(initial);
+	expect(summary.issues).toEqual({});
+	expect(summary.inference.plannerCalls).toBe(0);
+	const next = sample(930);
+	next.runtime!.events = [
+		{
+			sequence: 201, at: sample(915).at, event: 'planner-request-failed', sessionId,
+		},
+		{
+			sequence: 202, at: sample(916).at, event: 'sound-generation-failed', sessionId,
+		},
+		{
+			sequence: 203, at: sample(917).at, event: 'sound-generated', sessionId: randomUUID(),
+		},
+	];
+	next.runtime!.latestSequence = 203;
+	summary.add(next);
+	summary.add({...next, at: sample(960).at});
+	expect(summary.inference).toEqual({
+		plannerCalls: 0, generatedRecordings: 0, cacheReuses: 0, failures: 2,
+	});
+	expect(summary.issues['inference-failure']?.count).toBe(2);
+});

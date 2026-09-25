@@ -10,6 +10,10 @@ export {
 	savedSceneSchema, sceneLibrarySchema, sceneLibraryPageSize, type SavedScene,
 } from './library.js';
 
+export {
+	startRecordingSchema, recordingSchema, recordingListSchema, type Recording, type StartRecording,
+} from './recordings.js';
+
 export {sceneSchema, eventCategorySchema, type Scene} from './scene.js';
 
 export const healthResponseSchema = z.object({

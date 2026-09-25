@@ -8,7 +8,7 @@ import {tmpdir} from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 import {promisify} from 'node:util';
-import {listenerSessionSchema} from '@soundscapes/shared';
+import {listenerSessionSchema, recordingSchema} from '@soundscapes/shared';
 import {buildApp} from '../app.js';
 import {createFixture} from '../audio/fixture.js';
 import {readConfig, repositoryRoot} from '../config.js';
@@ -80,6 +80,9 @@ try {
 	const {session, listenerId} = listenerSessionSchema.parse(creation.json());
 	const play = await app.inject({method: 'POST', url: `/api/sessions/${session.id}/play`, payload: {listenerId}});
 	assert.equal(play.statusCode, 200);
+	const embeddedStart = await app.inject({method: 'POST', url: '/api/recordings', payload: {sessionId: session.id, minutes: 5, device: 'Automated HTTPS check'}});
+	assert.equal(embeddedStart.statusCode, 200);
+	const embedded = recordingSchema.parse(embeddedStart.json());
 	let recorderExit = 0;
 	try {
 		await promisify(execFile)(process.execPath, [
@@ -109,7 +112,8 @@ try {
 	}
 
 	assert.equal(recorderExit, 2, 'Recorder should flag the deliberately unconsumed session');
-	const runs = await readdir(path.join(directory, 'soaks'));
+	const entries = await readdir(path.join(directory, 'soaks'));
+	const runs = entries.filter(name => !name.startsWith('pwa-'));
 	assert.equal(runs.length, 1);
 	const summary = JSON.parse(await readFile(path.join(directory, 'soaks', runs[0]!, 'summary.json'), 'utf8')) as {
 		outcome: string; completeSamples: number; samples: number; issues: Record<string, unknown>;
@@ -121,7 +125,16 @@ try {
 	const debug = await app.inject(`/api/debug/sessions/${session.id}`);
 	assert.equal(debug.json<{producerPid: number | undefined}>().producerPid, null);
 	assert.equal(debug.json<{listeners: Array<{state: string}>}>().listeners[0]?.state, 'expired');
-	console.log('PASS: verified HTTPS; untrusted/mismatched certificates rejected; recorder trusts only its configured CA and observes watchdog expiry without renewing demand.');
+	const embeddedStop = await app.inject({method: 'POST', url: `/api/recordings/${embedded.id}/stop`});
+	const ended = recordingSchema.parse(embeddedStop.json());
+	assert.equal(ended.state, 'interrupted');
+	assert.ok(ended.samples >= 3);
+	assert.equal(ended.samples, ended.completeSamples);
+	assert.ok(ended.issues.some(issue => issue.code === 'playback-interrupted'));
+	const download = await app.inject(`/api/recordings/${embedded.id}/summary`);
+	assert.equal(download.headers['cache-control'], 'no-store');
+	assert.ok(download.body.includes('Review required'));
+	console.log('PASS: verified HTTPS; untrusted/mismatched certificates rejected; CLI recorder trusts only its configured CA; CLI and PWA recording observe watchdog expiry without renewing demand.');
 } finally {
 	await app?.close();
 	await rm(directory, {recursive: true, force: true});

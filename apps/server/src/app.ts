@@ -7,6 +7,10 @@ import {claimServer, openStore} from './persistence/open.js';
 import {SessionManager} from './sessions/manager.js';
 import {registerSessionRoutes} from './sessions/routes.js';
 import {Diagnostics} from './monitoring/diagnostics.js';
+import {Recordings} from './monitoring/recordings.js';
+import {collectSample} from './monitoring/sample.js';
+import {captureProvenance} from './monitoring/provenance.js';
+import {registerRecordingRoutes} from './monitoring/routes.js';
 
 type AppOptions = {
 	logger?: FastifyServerOptions['logger'];
@@ -39,10 +43,24 @@ export async function buildApp({logger = false, webRoot, config = readConfig(), 
 			app.log.info({sessionId, event, detail}, 'Session lifecycle');
 		},
 	});
+	const recordings = new Recordings({
+		dataDirectory: config.dataDirectory, session: id => manager.get(id),
+		collect: async sessionId => collectSample({
+			origin: 'http://localhost', sessionId, dataDirectory: config.dataDirectory,
+			local: {runtime: () => diagnostics.snapshot(config), session: () => manager.debug(sessionId)},
+		}),
+		provenance: async () => captureProvenance(config),
+		onError(error) {
+			diagnostics.record('recording-error', 'server', String(error));
+			app.log.error({err: error}, 'Diagnostic recorder failed');
+		},
+	});
 	try {
 		if (!sessions) {
 			await manager.initialize();
 		}
+
+		await recordings.initialize();
 	} catch (error) {
 		await manager.close();
 		await release?.();
@@ -52,9 +70,13 @@ export async function buildApp({logger = false, webRoot, config = readConfig(), 
 	app.addHook('onClose', async () => {
 		diagnostics.record('server-closing');
 		try {
-			await manager.close();
+			await recordings.close();
 		} finally {
-			await release?.();
+			try {
+				await manager.close();
+			} finally {
+				await release?.();
+			}
 		}
 	});
 	app.addHook('onError', async (request, reply, error) => {
@@ -79,6 +101,7 @@ export async function buildApp({logger = false, webRoot, config = readConfig(), 
 		stage: 'local-event-planning',
 	}));
 	registerSessionRoutes(app, manager);
+	registerRecordingRoutes(app, recordings);
 	app.get('/api/debug/monitoring', async () => diagnostics.snapshot(config));
 
 	if (webRoot) {

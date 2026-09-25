@@ -55,7 +55,7 @@ export class GenerationService {
 	readonly generator: SoundGenerator;
 	private readonly config: AppConfig;
 	private profile: Promise<string> | undefined;
-	constructor(config: AppConfig, private readonly store: Store, generator?: SoundGenerator) {
+	constructor(config: AppConfig, private readonly store: Store, generator?: SoundGenerator, private readonly log: (event: string, sessionId: string, detail?: string) => void = () => undefined) {
 		this.config = {...config, sound: {...config.sound, output: path.join(config.dataDirectory, 'quarantine/sound')}};
 		this.generator = generator ?? new PythonSoundGenerator(this.config.sound);
 		this.queue = new GenerationQueue(this.generator);
@@ -169,6 +169,7 @@ export class GenerationService {
 				tracking.preparation.reusedBeds++;
 			}
 
+			this.log('sound-cache-reused', owner.sessionId, description.kind);
 			return existing;
 		}
 
@@ -181,7 +182,10 @@ export class GenerationService {
 			tracking?.preparation.update('queued');
 			const audio = await this.queue.submit(request, {
 				...owner, deadlineAt: owner.deadlineAt ?? Date.now() + this.config.sound.timeoutMs,
-				onStart: () => tracking?.preparation.begin(`generate-${tracking.variant}`, `${tracking.timingProfile}:${this.workerTemperature()}`, 'loading'),
+				onStart: () => {
+					this.log('sound-generation-started', owner.sessionId, description.kind);
+					tracking?.preparation.begin(`generate-${tracking.variant}`, `${tracking.timingProfile}:${this.workerTemperature()}`, 'loading');
+				},
 				onProgress: value => tracking?.preparation.update(value.stage, value.step),
 			});
 			if (tracking) {
@@ -198,7 +202,14 @@ export class GenerationService {
 			}
 
 			tracking?.preparation.complete();
+			this.log('sound-generated', owner.sessionId, description.kind);
 			return asset;
+		} catch (error) {
+			if (!owner.signal.aborted) {
+				this.log('sound-generation-failed', owner.sessionId, String(error).slice(0, 1000));
+			}
+
+			throw error;
 		} finally {
 			await rm(quarantine, {force: true});
 		}

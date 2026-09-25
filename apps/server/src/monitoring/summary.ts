@@ -8,6 +8,10 @@ export class RunSummary {
 	readonly metrics: Record<string, Metric> = {};
 	readonly issues: Record<string, Issue> = {};
 	readonly states: Record<string, number> = {};
+	readonly inference = {
+		plannerCalls: 0, generatedRecordings: 0, cacheReuses: 0, failures: 0,
+	};
+
 	samples = 0;
 	completeSamples = 0;
 	firstAt: string | undefined;
@@ -65,7 +69,7 @@ export class RunSummary {
 	json() {
 		return {
 			samples: this.samples, completeSamples: this.completeSamples, firstAt: this.firstAt, lastAt: this.lastAt,
-			states: this.states, issues: this.issues,
+			states: this.states, issues: this.issues, inference: this.inference,
 			metrics: Object.fromEntries(Object.entries(this.metrics).map(([name, value]) => [name, {...value, mean: value.sum / value.samples}])),
 		};
 	}
@@ -80,7 +84,7 @@ export class RunSummary {
 				this.lastSequence = 0;
 			}
 
-			if ((events[0]?.sequence ?? 1) > this.lastSequence + 1) {
+			if (this.lastInstance && (events[0]?.sequence ?? 1) > this.lastSequence + 1) {
 				warn('journal-gap', 'More than 128 server events occurred before collection; older details were lost.');
 			}
 
@@ -106,6 +110,25 @@ export class RunSummary {
 	private observeEvents(events: RuntimeSnapshot['events'], at: string, warn: Warn) {
 		for (const event of events) {
 			const relevant = (event.sessionId === this.sessionId || event.sessionId === 'server') && event.at >= (this.firstAt ?? at);
+			if (relevant && event.sessionId === this.sessionId) {
+				if (event.event === 'planner-request-started') {
+					this.inference.plannerCalls++;
+				}
+
+				if (event.event === 'sound-generated') {
+					this.inference.generatedRecordings++;
+				}
+
+				if (['sound-cache-reused', 'asset-reuse-selected'].includes(event.event)) {
+					this.inference.cacheReuses++;
+				}
+
+				if (['planner-request-failed', 'sound-generation-failed'].includes(event.event)) {
+					this.inference.failures++;
+					warn('inference-failure', `${event.event}: ${event.detail ?? 'See server logs'}`);
+				}
+			}
+
 			if (relevant && event.event.includes('error')) {
 				warn('server-error', `${event.event}: ${event.detail ?? event.sessionId}`);
 			}

@@ -330,8 +330,9 @@ it('expires and freezes playback despite repeated recorder debug requests', asyn
 		for (let index = 0; index < 4; index++) {
 			advance(30_000);
 			// eslint-disable-next-line no-await-in-loop -- Simulate serial sampling across watchdog expiry.
-			const responses = await Promise.all([app.inject(`/api/debug/sessions/${session.id}`), app.inject('/api/debug/monitoring')]);
-			expect(responses.map(response => response.statusCode)).toEqual([200, 200]);
+			const responses = await Promise.all([app.inject(`/api/debug/sessions/${session.id}`), app.inject('/api/debug/monitoring'), app.inject('/api/recordings')]);
+			expect(responses.map(response => response.statusCode)).toEqual([200, 200, 200]);
+			expect(responses[2].headers['cache-control']).toBe('no-store');
 			expect(responses[1].headers['cache-control']).toBe('no-store');
 			// eslint-disable-next-line no-await-in-loop -- Advance the watchdog between samples.
 			await manager.sweep();

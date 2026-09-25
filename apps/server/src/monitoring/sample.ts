@@ -104,10 +104,13 @@ export function assertLocalRuntime(runtime: RuntimeSnapshot, dataDirectory: stri
 	}
 }
 
-export async function collectSample({origin, sessionId, dataDirectory, signal}: {origin: string; sessionId: string; dataDirectory: string; signal?: AbortSignal}): Promise<Sample> {
+export async function collectSample({origin, sessionId, dataDirectory, signal, local}: {
+	origin: string; sessionId: string; dataDirectory: string; signal?: AbortSignal;
+	local?: {runtime: () => unknown; session: () => unknown};
+}): Promise<Sample> {
 	const sample: Sample = {at: new Date().toISOString(), errors: []};
-	const readRuntime = async () => runtimeSchema.parse(await fetchJson(new URL('/api/debug/monitoring', origin), signal));
-	const readSession = async () => sessionDebugSchema.parse(await fetchJson(new URL(`/api/debug/sessions/${sessionId}`, origin), signal));
+	const readRuntime = async () => runtimeSchema.parse(local ? local.runtime() : await fetchJson(new URL('/api/debug/monitoring', origin), signal));
+	const readSession = async () => sessionDebugSchema.parse(local ? local.session() : await fetchJson(new URL(`/api/debug/sessions/${sessionId}`, origin), signal));
 	const results = await Promise.allSettled([
 		readRuntime(), readSession(),
 	]);

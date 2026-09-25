@@ -229,7 +229,35 @@ pnpm wav:play --session SESSION_UUID --wav WAV_NUMBER
 
 ## Record an unattended playback run
 
-Use a fixed production build, keep the server computer powered and awake, and start playback in the browser or installed app. Do not rebuild or restart the server during the run. Obtain the session ID from the page's `?session=...` URL, then run the recorder on the server computer using the same configuration/data directory:
+Use a fixed production build, keep the server computer powered and awake, and start playback in the browser or installed app. Do not rebuild or restart the server during the run.
+
+### Record from the PWA
+
+Open **Playback diagnostics** below the player. Choose **5-minute check** or **8-hour recording**, enter the device/OS/audio-output details, and tap **Start recording**. It uses the current session automatically. Wait for the complete-sample count to increase before locking the device. Samples are collected on the server every five seconds for the check, or every thirty seconds for the overnight run. No separate recorder terminal or session ID is needed.
+
+**Stop recording** ends diagnostics without changing playback. An early stop is marked **interrupted**. Pause continues to stop rendering normally; diagnostics record the interruption without keeping a listener alive. The requested duration completes automatically even if this page is closed. A stopped/failed/unavailable session ends its recording early. One recording can run per server; repeated Start for the same session returns the existing run.
+
+Under **Recent recordings**, expand a run for its result, issue counts, observed planner calls, new audio recordings and cache reuses. **Download summary** saves a text report. The latest twenty PWA recordings remain available after reloading or closing the playback session; older raw files remain under `data/soaks/pwa-<RECORDING_UUID>/`. Runs created by the CLI below are separate and do not appear in PWA history. Neither API reads nor recording controls start inference or renew listeners; API and summary responses are uncached.
+
+A server shutdown or crash interrupts its embedded recorder. After restart, an unfinished run is marked interrupted at its last saved sample; time while the server was unavailable is not counted. Logs rotate within about 24 MiB per run, plus summaries and manifest. Keep raw device notes, user agent, source/runtime provenance and session/process diagnostics local.
+
+### Five-minute physical-device preflight
+
+Do this **before** the overnight acceptance run:
+
+1. Restart the updated server and close/reopen the installed PWA to load the new controls. For endurance, use a fixed `pnpm build` / `pnpm start` setup rather than a watching dev server. On macOS, `caffeinate -i pnpm start` prevents idle sleep while the server runs; keep the computer plugged in with its lid open. Preserve your trusted HTTPS configuration.
+2. On the test iPhone, start a prepared scene through the intended Bluetooth output. Select **5-minute check**, enter the iPhone model, iOS version and output device, then tap **Start recording**. Verify the recording title and increasing complete-sample count.
+3. Lock the screen and leave playback uninterrupted for at least five minutes. Listen before locking and after unlocking; note any audible gaps. Return to **Recent recordings**. Expect **completed**, roughly five minutes observed, matching complete/total sample counts (normally 61/61), and **No issues detected in sampled telemetry**. Download the summary.
+4. Separately, start another five-minute check and intentionally pause from the lock screen for about fifteen seconds. Verify silence and the page’s paused/ready-to-play status, then resume. Tap **Stop recording** and confirm audio keeps playing. This run should be **interrupted**, with pause/idle issues; those are expected for this deliberate control check.
+5. Close/reopen the PWA and confirm both summaries remain accessible. Reopening does not automatically resume audio. Report any missing summaries, collection errors, unexpected interruptions or audible gaps before starting the overnight run.
+
+For the overnight run, start playback, select **8-hour recording**, then verify the first samples before locking the phone. Disable the audio device's own sleep timer. Let recording finish automatically. Retain the summary and your listening/control observations separately; the five-minute preflight does not pass the overnight gate.
+
+For inference-during-playback evidence, use a freshly generated scene and begin recording as soon as playback starts. A layered scene may expand its pools early, then reuse them indefinitely; simple mode can request optional events at its normal cadence. Watch **Planner calls** and **New audio recordings** in the summary. Zero new recordings means this run did not demonstrate fresh sound generation during recording; cache reuse is not inference. Do not alter planner cadence or force generation for the endurance run. Separate Ollama/GPU allocation remains outside this recorder's resource measurements.
+
+### Terminal alternative
+
+Obtain the session ID from the page's `?session=...` URL, then run the recorder on the server computer using the same configuration/data directory:
 
 ```sh
 pnpm soak:record --url http://127.0.0.1:3000 \
