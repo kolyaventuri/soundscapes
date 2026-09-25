@@ -13,6 +13,15 @@
 - Keep AI behind replaceable local adapters. Do not select/download models or build AI integration before the transport/lifecycle gate passes.
 - No accounts, cloud AI, WAN deployment, synchronized multiplayer, native mobile app, microphone input, or vector database in v0.1 (spec §3).
 
+## Next work after the source-timing repair
+
+The user approved the repair pass in `78ba6ea`. Prioritize the following work; accepted transport/device endurance remains complete. Investigate remaining audible faults with specific examples rather than repeating the entire acceptance matrix.
+
+- [ ] Give individual layered effect sources prompt-derived frequency and cooldowns. The current compiler assigns every effects layer the same 45–120-second gap range; a rare horn and occasional cup clink therefore share one cadence. Preserve bounded, deterministic scheduling and restart state, and keep all configuration automatic from the scene prompt. Verify rare versus frequent requests, multiple effect sources, source coverage and no immediate repetition. This extends the optional layered prototype.
+- [ ] Make exclusions source-specific without dropping other requested sounds. The current category filter treats “no rain” as excluding all water events and “no horns” as excluding all machinery events. Preserve requested creek/espresso sources while excluding rain/horns, and cover compound positive/negative prompts with unit and real-planner regressions. Forwarding exclusions still does not guarantee generated-audio compliance.
+- [ ] Diagnose any remaining creek phasing/choppiness and prominent artificial crowd voices using matched source WAV, pre-encode mix and decoded-stream excerpts. Locate the faulty stage before changing DSP or generation; compare one controlled change at a time. Retain jazz café as the successful reference and check rain exclusion adherence on affected fresh output.
+- [ ] Reconcile the v0.1 handoff checklist: distinguish completed/superseded historical checks from current release requirements, record remaining simple-mode listening/level and local HTTPS usability limitations, and update portable setup documentation. Keep source quality acceptance separate from the already completed endurance checks. Slow scene mutations, pool replacement and musical continuation remain later work.
+
 ## Phase 0 — Development foundation
 
 Spec: §4, §41–45, §49–51.
