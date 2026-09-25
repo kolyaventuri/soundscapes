@@ -6,6 +6,7 @@ import {
 import Hls from 'hls.js';
 import {useEffect, useRef, useState} from 'react';
 import {request} from './api.js';
+import {playbackLoader} from './playback-loader.js';
 
 type PlayerProps = {
 	readonly connection: ListenerSession;
@@ -31,7 +32,8 @@ export function Player({connection, onSession, onError}: PlayerProps) {
 
 		let disposed = false;
 		let hls: Hls | undefined;
-		let controls = Promise.resolve();
+		let loader: ReturnType<typeof playbackLoader> | undefined;
+		let controls = Promise.resolve(true);
 
 		async function control(action: 'play' | 'pause' | 'stop') {
 			try {
@@ -46,6 +48,8 @@ export function Player({connection, onSession, onError}: PlayerProps) {
 				if (!disposed) {
 					onSession(session);
 				}
+
+				return !disposed;
 			} catch (error) {
 				if (!disposed) {
 					onError(
@@ -55,28 +59,31 @@ export function Player({connection, onSession, onError}: PlayerProps) {
 						audio?.pause();
 					}
 				}
+
+				return false;
 			}
 		}
 
-		function queue(action: 'play' | 'pause' | 'stop') {
+		async function queue(action: 'play' | 'pause' | 'stop') {
 			const previous = controls;
 			controls = (async () => {
 				await previous;
-				await control(action);
+				return control(action);
 			})();
+			return controls;
 		}
 
 		const play = () => {
 			onError('');
 			setPlayback('Buffering…');
-			queue('play');
-			hls?.startLoad(-1);
+			const ready = queue('play');
+			void loader?.start(ready);
 		};
 
 		const pause = () => {
 			setPlayback('Paused');
-			hls?.stopLoad();
-			queue('pause');
+			loader?.stop();
+			void queue('pause');
 			if ('mediaSession' in navigator) {
 				navigator.mediaSession.playbackState = 'paused';
 			}
@@ -121,10 +128,11 @@ export function Player({connection, onSession, onError}: PlayerProps) {
 				maxMaxBufferLength: 36,
 				backBufferLength: 12,
 			});
-			hls.loadSource(streamUrl);
+			loader = playbackLoader(hls, streamUrl);
 			hls.attachMedia(audio);
 			hls.on(Hls.Events.ERROR, (event, data) => {
 				if (data.fatal && !disposed) {
+					loader?.stop();
 					audio.pause();
 					onError(
 						'The stream was interrupted. Prepare a new test stream to reconnect.',
@@ -171,7 +179,7 @@ export function Player({connection, onSession, onError}: PlayerProps) {
 					'stop',
 					() => {
 						audio.pause();
-						queue('stop');
+						void queue('stop');
 					},
 				],
 			] as const) {
@@ -203,6 +211,7 @@ export function Player({connection, onSession, onError}: PlayerProps) {
 			audio.removeEventListener('ended', ended);
 			audio.removeEventListener('error', failed);
 			audio.pause();
+			loader?.stop();
 			hls?.destroy();
 			audio.removeAttribute('src');
 			audio.load();
