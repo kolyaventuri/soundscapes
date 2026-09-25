@@ -7,11 +7,38 @@ import {explicitSoundConstraints} from '../planning/scene-constraints.js';
 import {loadEnvironment, readConfig} from '../config.js';
 import {OllamaPlanner} from '../planning/ollama.js';
 import {writeJson} from '../monitoring/storage.js';
-import {checkLayerPlans, cafePrompt, rainPrompt} from './layer-regression.js';
+import {
+	checkLayerPlans, cafePrompt, rainPrompt, creekPrompt,
+} from './layer-regression.js';
 
 loadEnvironment();
 const config = readConfig();
 const planner = new OllamaPlanner(config.planner);
+if (process.argv.includes('--scenes')) {
+	const {signal} = new AbortController();
+	const creek = await planner.parseScene(creekPrompt, signal);
+	assert.match(creek.ambiencePrompt, /water|creek|trickl/i);
+	assert.doesNotMatch(creek.ambiencePrompt, /bird|chirp|call/i);
+	assert.ok(creek.allowedEventCategories.includes('birds'));
+	assert.ok(!creek.allowedEventCategories.includes('objects'));
+	const cafe = await planner.parseScene(cafePrompt, signal);
+	assert.match(cafe.ambiencePrompt, /piano|jazz/i);
+	assert.match(cafe.ambiencePrompt, /crowd|conversation|chatter|murmur/i);
+	const rain = await planner.parseScene('Inside a quiet bedroom, steady rain patters against a closed window and drips from the eaves. No thunder, voices, traffic or music.', signal);
+	assert.match(rain.ambiencePrompt, /rain|droplet/i);
+	assert.match(rain.ambiencePrompt, /window|glass/i);
+	assert.doesNotMatch(rain.ambiencePrompt, /thunder|voice|traffic|music/i);
+	assert.ok(rain.constraints.some(value => /thunder/i.test(value)));
+	const file = path.join(config.dataDirectory, 'planner-checks', `${Date.now()}-scenes.json`);
+	await mkdir(path.dirname(file), {recursive: true});
+	await writeJson(file, {
+		model: config.planner.model, creek, cafe, rain,
+	});
+	console.log(`PASS: real creek event separation, ongoing cafe music/crowd coverage, and window-rain caption/constraints. Evidence: ${file}`);
+	// eslint-disable-next-line unicorn/no-process-exit -- All model and file work is awaited.
+	process.exit(0);
+}
+
 // Focused rerun for layer-caption/policy iterations; the default still exercises
 // the full parser/event suite before running these same layer assertions.
 if (process.argv.includes('--layers')) {
@@ -104,6 +131,8 @@ try {
 	assert.equal(cafe.sleepMode, false);
 	assert.match(cafe.audioPrompt, /piano|jazz/i);
 	assert.match(cafe.audioPrompt, /crowd|conversation|chatter|murmur/i);
+	assert.match(cafe.ambiencePrompt, /piano|jazz/i);
+	assert.match(cafe.ambiencePrompt, /crowd|conversation|chatter|murmur/i);
 	assert.deepEqual(cafe.constraints, [], 'Do not invent exclusions for requested sources');
 	const sleepCafe = await planner.parseScene('A cafe with jazz piano and crowd murmur.', signal, true);
 	assert.equal(sleepCafe.sleepMode, true);
@@ -112,11 +141,16 @@ try {
 	const awakeCafe = await planner.parseScene('A cafe with jazz piano and crowd murmur, a place to fall asleep.', signal, false);
 	assert.equal(awakeCafe.sleepMode, false);
 	assert.deepEqual(awakeCafe.constraints, []);
-	const {layeredCafe, layeredRain, layeredBand, layeredBeach} = await checkLayerPlans(planner, signal, cafe, defaulted);
+	const creek = await planner.parseScene(creekPrompt, signal);
+	assert.match(creek.ambiencePrompt, /water|creek|trickl/i);
+	assert.doesNotMatch(creek.ambiencePrompt, /bird|chirp|call/i);
+	assert.ok(creek.allowedEventCategories.includes('birds'));
+	assert.ok(!creek.allowedEventCategories.includes('objects'));
+	const layers = await checkLayerPlans(planner, signal, cafe, defaulted);
 	const result = {
 		at: new Date().toISOString(), model: config.planner.model, sceneMs, nullMs, eventMs,
 		maximumModelBytes, maximumGpuBytes, scene, empty, proposal, generatedProposal, generationProposalMs,
-		defaulted, cafe, sleepCafe, awakeCafe, layeredCafe, layeredRain, layeredBand, layeredBeach,
+		defaulted, cafe, sleepCafe, awakeCafe, creek, ...layers,
 		note: 'Real local model calls. Memory is sampled Ollama-reported model/VRAM allocation, not total host usage or an overnight result.',
 	};
 	const directory = path.join(config.dataDirectory, 'planner-checks');

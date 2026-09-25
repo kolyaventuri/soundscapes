@@ -13,7 +13,7 @@ const passageSchema = sourceSchema.extend({continuity: z.enum(['ongoing', 'occas
 export const layerSourcesSchema = z.strictObject({
 	space: z.enum(['open-air', 'small-room', 'large-room']),
 	continuousEnvironment: z.array(sourceSchema).max(4), music: passageSchema.nullable(), humanActivity: passageSchema.nullable(),
-	occasionalEffects: z.array(sourceSchema).max(4),
+	occasionalEffects: z.array(sourceSchema.extend({durationSeconds: z.number().int().min(2).max(10).default(4)})).max(4),
 });
 
 const acoustics = {
@@ -21,6 +21,12 @@ const acoustics = {
 	'small-room': 'Natural stereo recording with short room reflections.',
 	'large-room': 'Natural stereo recording with spacious reverberation.',
 };
+
+function sourceGain(id: LayerPolicy['id'], source: Source) {
+	// Broad environmental beds mask diners even when ordered correctly. Keep
+	// music/activity balance intact while giving background environment depth.
+	return (id === 'ambience' ? {primary: 1, background: 0.4, distant: 0.2} : {primary: 1, background: 0.7, distant: 0.45})[source.prominence];
+}
 
 function sourcePolicy(id: LayerPolicy['id'], sources: Source[], continuous: boolean): LayerPolicy {
 	return {
@@ -30,7 +36,7 @@ function sourcePolicy(id: LayerPolicy['id'], sources: Source[], continuous: bool
 		required: id !== 'effects', playback: continuous ? 'continuous' : (id === 'effects' ? 'sparse' : 'gapped'),
 		gapSeconds: continuous ? {minimum: 0, maximum: 0} : (id === 'effects' ? {minimum: 45, maximum: 120} : {minimum: 15, maximum: 45}),
 		fadeSeconds: id === 'music' ? 3 : (id === 'effects' ? 1 : 10),
-		gain: sources.length === 0 ? 0.12 : Math.max(...sources.map(source => ({primary: 1, background: 0.7, distant: 0.45})[source.prominence])),
+		gain: sources.length === 0 ? 0.12 : Math.max(...sources.map(source => sourceGain(id, source))),
 		variability: id === 'effects' ? 0.15 : 0.08,
 	};
 }
@@ -52,7 +58,14 @@ export function compileLayerSources(value: unknown) {
 
 		const continuous = id === 'ambience' || (id === 'music' && inventory.music?.continuity === 'ongoing')
 			|| (id === 'activity' && inventory.humanActivity?.continuity === 'ongoing');
-		layers.push(sourcePolicy(id, sources, continuous));
+		const policy = sourcePolicy(id, sources, continuous);
+		if (id === 'effects') {
+			policy.effectSources = inventory.occasionalEffects.map(source => ({
+				prompt: `${source.name}. ${source.caption}`, durationSeconds: source.durationSeconds, gain: sourceGain(id, source),
+			}));
+		}
+
+		layers.push(policy);
 	}
 
 	return validatePlan({acoustics: acoustics[inventory.space], layers});

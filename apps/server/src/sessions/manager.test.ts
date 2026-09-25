@@ -81,6 +81,26 @@ it('bounds preparation, stays idle without listeners, and never treats polling a
 	expect(renderers.every(renderer => !renderer.running)).toBe(true);
 });
 
+it('withholds stopped-run audio when a native playlist request arrives before Play', async () => {
+	const {manager, factory} = await setup();
+	const {session, listenerId} = manager.create();
+	const beforePlay = await manager.playlist(session.id, listenerId);
+	expect(beforePlay).toContain('#EXT-X-TARGETDURATION:6');
+	expect(beforePlay).not.toContain('#EXTINF');
+	expect(beforePlay).not.toContain('#EXT-X-ENDLIST');
+	const preparedRun = manager.debug(session.id).currentRun;
+	expect(manager.get(session.id)).toMatchObject({status: 'idle', rendering: false, listenerCount: 0});
+	expect(factory).toHaveBeenCalledTimes(1);
+	await manager.play(session.id, listenerId);
+	const live = await manager.playlist(session.id, listenerId);
+	expect(live).toContain(manager.debug(session.id).currentRun);
+	expect(live).not.toContain(preparedRun);
+	await manager.pause(session.id, listenerId);
+	expect(await manager.playlist(session.id, listenerId)).not.toContain('#EXTINF');
+	expect(factory).toHaveBeenCalledTimes(2);
+	expect(manager.get(session.id)).toMatchObject({status: 'idle', rendering: false, listenerCount: 0});
+});
+
 it('lists orphaned and failed sessions, frees capacity after closing, and never renews demand', async () => {
 	const planner: Planner = {
 		busy: false, parseScene: vi.fn(async () => {
@@ -422,6 +442,7 @@ it('validates HTTP contracts and IDs, serves uncached HLS, and rejects traversal
 		const creation = await app.inject({method: 'POST', url: '/api/sessions', payload: {mode: 'fixture'}});
 		expect(creation.statusCode).toBe(202);
 		const {session, listenerId, streamUrl} = listenerSessionSchema.parse(creation.json());
+		await manager.play(session.id, listenerId);
 		const playlist = await app.inject(streamUrl);
 		expect(playlist.statusCode).toBe(200);
 		expect(playlist.headers['cache-control']).toBe('no-store');

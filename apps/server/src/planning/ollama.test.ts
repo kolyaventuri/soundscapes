@@ -8,7 +8,10 @@ import {OllamaPlanner} from './ollama.js';
 afterEach(() => {
 	vi.unstubAllGlobals();
 });
-const scene = sceneSchema.parse({title: 'Quiet park', sleepMode: true, simulatedStart: '1932-10-01T01:00:00Z'});
+const scene = {
+	...sceneSchema.parse({title: 'Quiet park', sleepMode: true, simulatedStart: '1932-10-01T01:00:00Z'}),
+	audibleSources: [{caption: 'Soft air through leaves.', timing: 'ongoing', category: 'leaves'}],
+};
 const context = {
 	scene, simulatedTime: scene.simulatedStart, elapsedMs: 0, ambientState: [], recentEvents: [], library: [], earliestPlaybackMs: 90_000,
 };
@@ -102,7 +105,8 @@ it('rejects remote planner origins and invalid opportunity distributions', () =>
 
 it('keeps requested music and crowds with sleep mode optional', async () => {
 	const parsed = {
-		...scene, sleepMode: false, audioPrompt: 'A cafe with jazz piano and indistinct crowd chatter.', constraints: ['no jazz piano', 'no crowd conversation'],
+		...scene, sleepMode: false, constraints: ['no jazz piano', 'no crowd conversation'],
+		audibleSources: [{caption: 'A cafe with jazz piano and indistinct crowd chatter.', timing: 'ongoing', category: 'none'}],
 		calendar: {
 			month: null, day: null, hour: null, minute: null,
 		},
@@ -119,7 +123,7 @@ it('keeps requested music and crowds with sleep mode optional', async () => {
 
 it.each([true, false])('honors an explicit sleep mode of %s even if the model disagrees', async sleepMode => {
 	const fetch = vi.fn(async () => response({
-		...scene, sleepMode: !sleepMode, audioPrompt: 'Jazz piano and crowd murmur', calendar: {
+		...scene, sleepMode: !sleepMode, audibleSources: [{caption: 'Jazz piano and crowd murmur', timing: 'ongoing', category: 'none'}], calendar: {
 			month: null, day: null, hour: null, minute: null,
 		},
 	}));

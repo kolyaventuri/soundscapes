@@ -204,6 +204,19 @@ it('reports a stage-releasing worker as unloaded while retaining its process', a
 	expect(generator.diagnostics().pid).not.toBeNull();
 });
 
+it('keeps occasional sources out of the simple bed and the whole scene out of isolated events', () => {
+	const scene = sceneSchema.parse({
+		title: 'Creek', originalPrompt: 'A creek with occasional birds.', audioPrompt: 'Flowing water with occasional birds.',
+		ambiencePrompt: 'Water trickles over stones.', sleepMode: false, simulatedStart: '2000-01-01T01:00:00Z', allowedEventCategories: ['birds'],
+	});
+	expect(soundPrompt(scene, 'Steady field recording.')).toContain('Water trickles');
+	expect(soundPrompt(scene, 'Steady field recording.')).not.toMatch(/bird/i);
+	const event = soundPrompt(scene, 'One distant bird call.', 'event');
+	expect(event).toContain('bird call');
+	expect(event).not.toMatch(/water|creek|stones/i);
+	expect(soundPrompt({...scene, constraints: ['No thunder']}, 'Steady field recording.')).toContain('No thunder');
+});
+
 it('conditions layered music on its own caption without bringing back the whole scene', () => {
 	const scene = sceneSchema.parse({
 		title: 'Beach restaurant', originalPrompt: 'Restaurant with waves, diners and Caribbean music.', sleepMode: false, simulatedStart: '2000-01-01T01:00:00Z',

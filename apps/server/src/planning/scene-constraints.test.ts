@@ -14,6 +14,10 @@ it('enforces explicit scene exclusions even when a model proposes an allowed cat
 	expect(explicitlyExcluded(prompt, 'distant-footsteps')).toBe(true);
 	expect(explicitlyExcluded(prompt, 'wind')).toBe(true);
 	expect(explicitlyExcluded(prompt, 'insects')).toBe(true);
+	expect(explicitlyExcluded(prompt, 'birds')).toBe(true);
+	expect(explicitlyExcluded('A ship deck. No horns.', 'machinery')).toBe(true);
+	expect(explicitlyExcluded('A cafe. No cup clinks.', 'objects')).toBe(true);
+	expect(explicitlyExcluded('Occasional deafening foghorn blasts.', 'machinery')).toBe(false);
 	expect(explicitlyExcluded(prompt, 'water')).toBe(false);
 	expect(explicitlyExcluded('Cool park with distant activity. No rain.', 'distant-footsteps')).toBe(false);
 });

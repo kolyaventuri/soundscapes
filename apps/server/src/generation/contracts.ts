@@ -27,5 +27,6 @@ export const generationMetadataSchema = z.object({
 	model: z.string().max(120), revision: z.string().max(64), seed: z.number().int(), prompt: z.string().max(6000),
 	sceneKey: z.string().length(64), assetKey: z.string().length(64), createdAt: z.iso.datetime(), validation: z.enum(['levels-v1', 'levels-v2']),
 	warning: z.string().max(300).optional(),
+	layerGain: z.number().min(0).max(1).optional(), layerSource: z.number().int().min(0).max(3).optional(),
 	variant: z.number().int().min(0).max(5).optional(), layerId: layerIdSchema.optional(), category: eventCategorySchema.optional(), elapsedMs: z.number().nonnegative(),
 });

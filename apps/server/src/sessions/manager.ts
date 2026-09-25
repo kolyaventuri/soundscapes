@@ -382,6 +382,14 @@ export class SessionManager {
 
 		await session.pending;
 		this.requireUsable(session);
+		// Native HLS can request its first manifest before the explicit Play POST.
+		// Never offer the stopped preparation/resume run to that request: a client
+		// would play its tail, then jump when Play publishes a new encoder run.
+		// An empty live playlist can be polled without starting or renewing demand.
+		if (listener.state === 'paused') {
+			return '#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:6\n';
+		}
+
 		const runId = session.currentRun;
 		const directory = runId ? session.runs.get(runId) : undefined;
 		if (!directory || !runId) {
@@ -647,11 +655,11 @@ export class SessionManager {
 				expansion: layer.expansionFailed
 					? 'limited'
 					: (session.expansion && !session.expansion.signal.aborted
-						&& session.layered?.layers.find(item => item.state === 'ready' && !item.expansionFailed && item.assetIds.length < poolSize(item.policy.id).target) === layer
+						&& session.layered?.layers.find(item => item.state === 'ready' && !item.expansionFailed && item.assetIds.length < poolSize(item.policy).target) === layer
 						? 'expanding'
 						: 'idle'),
 				required: layer.policy.required, playback: layer.policy.playback,
-				state: layer.state, readyClips: layer.assetIds.length, initialClips: poolSize(layer.policy.id).initial, targetClips: poolSize(layer.policy.id).target, warning: layer.warning,
+				state: layer.state, readyClips: layer.assetIds.length, initialClips: poolSize(layer.policy).initial, targetClips: poolSize(layer.policy).target, warning: layer.warning,
 			})) ?? [],
 			recentEvents: session.scheduledEvents.filter(event => event.startMs <= this.elapsed(session)).slice(-3).reverse()
 				.map(event => ({description: event.description, simulatedTime: event.simulatedTime})),
@@ -723,7 +731,7 @@ export class SessionManager {
 			abort.signal.throwIfAborted();
 			if (!session.sceneReady) {
 				session.preparation = 'Understanding your scene';
-				session.progress!.begin('scene', `planner:${this.config.planner.model}:scene-v3`, 'understanding');
+				session.progress!.begin('scene', `planner:${this.config.planner.model}:scene-v4`, 'understanding');
 				const signal = AbortSignal.any([abort.signal, AbortSignal.timeout(this.config.planner.timeoutMs)]);
 				session.scene = await abortable(this.planner.parseScene(session.scene.originalPrompt, signal, session.requestedSleepMode), signal);
 				session.sceneReady = true;
@@ -887,7 +895,7 @@ export class SessionManager {
 				throw new Error('The local planner does not support layered scenes');
 			}
 
-			progress.begin('layers', `planner:${this.config.planner.model}:layers-v1`, 'understanding');
+			progress.begin('layers', `planner:${this.config.planner.model}:layers-v2`, 'understanding');
 			const bounded = AbortSignal.any([signal, AbortSignal.timeout(layerPlanningTimeout(this.config.planner.timeoutMs))]);
 			const plan = await abortable(this.planner.planLayers(session.scene, bounded), bounded);
 			session.layered = createLayeredState(plan, session.timeline.seed);
@@ -898,7 +906,7 @@ export class SessionManager {
 		await this.generation.prepareLayerTasks(session.layered, progress);
 		progress.completedBeds = 0;
 		for (const [index, layer] of session.layered.layers.entries()) {
-			const {initial} = poolSize(layer.policy.id);
+			const {initial} = poolSize(layer.policy);
 			if (layer.state !== 'unavailable') {
 				try {
 					for (let variant = layer.assetIds.length; variant < initial; variant++) {
@@ -912,7 +920,7 @@ export class SessionManager {
 						layer.assetIds.push(asset.id);
 						layer.warning = asset.generation?.warning ?? layer.warning;
 						session.assetIds = session.layered.layers.flatMap(item => item.assetIds);
-						progress.completedBeds = session.layered.layers.reduce((sum, item) => sum + Math.min(item.assetIds.length, poolSize(item.policy.id).initial), 0);
+						progress.completedBeds = session.layered.layers.reduce((sum, item) => sum + Math.min(item.assetIds.length, poolSize(item.policy).initial), 0);
 						this.onEvent('layer-prepared', session.id, `${layer.policy.id}: ${layer.assetIds.length}/${initial}`);
 						this.save(session);
 					}
@@ -936,7 +944,7 @@ export class SessionManager {
 			}
 		}
 
-		progress.completedBeds = session.layered.layers.reduce((sum, layer) => sum + Math.min(layer.assetIds.length, poolSize(layer.policy.id).initial), 0);
+		progress.completedBeds = session.layered.layers.reduce((sum, layer) => sum + Math.min(layer.assetIds.length, poolSize(layer.policy).initial), 0);
 		this.save(session);
 	}
 
@@ -946,7 +954,7 @@ export class SessionManager {
 			return;
 		}
 
-		const layer = session.layered.layers.find(layer => layer.state === 'ready' && !layer.expansionFailed && layer.assetIds.length < poolSize(layer.policy.id).target);
+		const layer = session.layered.layers.find(layer => layer.state === 'ready' && !layer.expansionFailed && layer.assetIds.length < poolSize(layer.policy).target);
 		if (!layer) {
 			return;
 		}

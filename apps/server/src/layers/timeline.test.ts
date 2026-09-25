@@ -28,7 +28,11 @@ it('keeps layer clocks independent, leaves complete music passages across ambien
 	const ambience = state.layers[0]!;
 	const music = state.layers[1]!;
 	expect(ambience.clips[1]?.startMs).toBe(75_000);
-	expect(music.clips[0]!.startMs).toBeGreaterThan(0);
+	expect(music.clips[0]!.startMs).toBe(0);
+	expect(state.layers[2]!.clips[0]!.startMs).toBe(0);
+	expect(state.layers.slice(0, 3).map(layer => layer.clips[0]!.fadeInMs)).toEqual([2000, 2000, 2000]);
+	expect(ambience.clips[1]!.fadeInMs).toBe(15_000);
+	expect(state.layers[3]!.clips[0]!.startMs).toBeGreaterThan(0);
 	expect(music.clips[0]!.startMs + music.clips[0]!.durationMs).toBeGreaterThan(90_000);
 	expect(music.clips.every(clip => clip.durationMs === 120_000)).toBe(true);
 	expect(music.clips[1]!.startMs % 30_000).not.toBe(0);
@@ -51,7 +55,7 @@ it('bounds eight hours of scheduling, restores the exact random state and never 
 		const serialized = JSON.stringify(restored);
 		restored = layeredStateSchema.parse(JSON.parse(serialized));
 	}
-});
+}, 15_000); // Eight-hour simulation also runs alongside local inference checks.
 
 it('does not reshuffle music when effects are added and preserves intentional live-band gaps', () => {
 	const plan = structuredClone(testPlan);
@@ -87,4 +91,24 @@ it('rejects duplicate layers, inverted gaps and an unbounded scheduling horizon'
 	expect(() => {
 		extendLayers(state, assets, {untilMs: 3_600_000, playbackMs: 0, selected});
 	}).toThrow('horizon');
+});
+
+it('applies persisted per-source effect gain without changing the other layer schedules', () => {
+	const {state, assets} = setup();
+	const reference = structuredClone(state);
+	const quieter = assets.map(asset => asset.kind === 'event'
+		? assetSchema.parse({
+			...asset, generation: {
+				model: 'test', revision: 'test', seed: 1, prompt: 'One distant sound.', sceneKey: 'a'.repeat(64), assetKey: 'b'.repeat(64),
+				createdAt: '2000-01-01T00:00:00Z', validation: 'levels-v2', elapsedMs: 1, layerGain: 0.5, layerSource: 1,
+			},
+		})
+		: asset);
+	extendLayers(reference, assets, {untilMs: 180_000, playbackMs: 0, selected});
+	extendLayers(state, quieter, {untilMs: 180_000, playbackMs: 0, selected});
+	expect(state.layers.slice(0, 3)).toEqual(reference.layers.slice(0, 3));
+	for (const [index, clip] of state.layers[3]!.clips.entries()) {
+		expect(clip.gain).toBeCloseTo(reference.layers[3]!.clips[index]!.gain / 2);
+		expect(clip.assetId).toBe(reference.layers[3]!.clips[index]!.assetId);
+	}
 });

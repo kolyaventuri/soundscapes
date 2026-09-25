@@ -19,8 +19,10 @@ export type LayerState = z.infer<typeof layerStateSchema>;
 export type LayeredState = z.infer<typeof layeredStateSchema>;
 export type LayerClip = Bed & {gain: number};
 
-export function poolSize(id: LayerPolicy['id']) {
-	return id === 'ambience' ? {initial: 4, target: 4} : {initial: 2, target: id === 'effects' ? 6 : 3};
+export function poolSize(policy: LayerPolicy | LayerPolicy['id']) {
+	const id = typeof policy === 'string' ? policy : policy.id;
+	const sourceCount = typeof policy === 'string' ? 0 : (policy.effectSources?.length ?? 0);
+	return id === 'ambience' ? {initial: 4, target: 4} : {initial: Math.max(2, sourceCount), target: id === 'effects' ? 6 : 3};
 }
 
 export function clipSeconds(id: LayerPolicy['id']) {
@@ -37,6 +39,7 @@ export function validatePlan(value: unknown): LayerPlan {
 	}
 
 	for (const layer of plan.layers) {
+		validateEffectSources(layer);
 		if (layer.gapSeconds.minimum > layer.gapSeconds.maximum
 			|| (layer.playback === 'continuous' && layer.gapSeconds.maximum !== 0)
 			|| (layer.playback !== 'continuous' && layer.gapSeconds.minimum < 5)
@@ -53,6 +56,12 @@ export function validatePlan(value: unknown): LayerPlan {
 	return plan;
 }
 
+function validateEffectSources(layer: LayerPolicy) {
+	if (layer.effectSources && (layer.id !== 'effects' || layer.effectSources.some(source => source.gain > layer.gain))) {
+		throw new Error('Isolated effect sources require an effects layer with sufficient gain headroom');
+	}
+}
+
 export function createLayeredState(value: LayerPlan, seed: number): LayeredState {
 	const plan = validatePlan(value);
 	// Normalize once, not on every transition/failure. Keep planner policy distinct
@@ -64,8 +73,9 @@ export function createLayeredState(value: LayerPlan, seed: number): LayeredState
 			const layer: LayerState = {
 				policy, mixGain: policy.gain / normalization, seed: layerSeed, assetIds: [], clips: [], nextStartMs: 0, recent: [], state: 'waiting', warning: null, expansionFailed: false,
 			};
-			// All non-ambient layers enter independently, rather than on a transport boundary.
-			layer.nextStartMs = policy.id === 'ambience' ? 0 : 7000 + Math.floor(draw(layer) * (policy.id === 'effects' ? 45_000 : 24_000));
+			// Ongoing sources form the scene immediately. Their different durations
+			// and fades still keep subsequent boundaries independent.
+			layer.nextStartMs = policy.playback === 'continuous' ? 0 : 7000 + Math.floor(draw(layer) * (policy.id === 'effects' ? 45_000 : 24_000));
 			return layer;
 		}),
 	};
@@ -116,9 +126,13 @@ export function extendLayers(state: LayeredState, assets: Asset[], {untilMs, pla
 				return remaining < 0;
 			}) ?? weighted.at(-1)!;
 			const fadeMs = Math.min(layer.policy.fadeSeconds * 1000, asset.durationMs / 4);
-			const gain = layer.mixGain * (1 - layer.policy.variability + (draw(layer) * layer.policy.variability * 2));
+			const sourceGain = asset.generation?.layerGain ?? 1;
+			const gain = layer.mixGain * sourceGain * (1 - layer.policy.variability + (draw(layer) * layer.policy.variability * 2));
 			layer.clips.push({
-				assetId: asset.id, startMs: layer.nextStartMs, durationMs: asset.durationMs, fadeInMs: fadeMs, fadeOutMs: fadeMs, gain,
+				assetId: asset.id, startMs: layer.nextStartMs, durationMs: asset.durationMs,
+				// Establish the intended balance together; a faster music fade must not
+				// overpower a crowd that is still spending ten seconds fading in.
+				fadeInMs: layer.nextStartMs === 0 ? Math.min(2000, fadeMs) : fadeMs, fadeOutMs: fadeMs, gain,
 			});
 			layer.recent = [...layer.recent, asset.id].slice(-6);
 			const gap = layer.policy.playback === 'continuous'

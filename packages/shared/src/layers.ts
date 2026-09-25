@@ -10,6 +10,11 @@ export const layerPolicySchema = z.strictObject({
 	playback: z.enum(['continuous', 'gapped', 'sparse']),
 	gapSeconds: z.strictObject({minimum: z.number().int().min(0).max(300), maximum: z.number().int().min(0).max(600)}),
 	fadeSeconds: z.number().min(0.5).max(15), gain: z.number().min(0.05).max(1), variability: z.number().min(0).max(0.3),
+	// Older saved policies retain their combined caption. New effect pools hold
+	// one independently generated source per recording.
+	effectSources: z.array(z.strictObject({
+		prompt: z.string().trim().min(1).max(302), durationSeconds: z.number().int().min(2).max(10), gain: z.number().min(0.05).max(1),
+	})).min(1).max(4).optional(),
 });
 export const layerPlanSchema = z.strictObject({acoustics: z.string().trim().min(1).max(240), layers: z.array(layerPolicySchema).min(1).max(4)});
 export type LayerPolicy = z.infer<typeof layerPolicySchema>;

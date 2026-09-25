@@ -60,6 +60,9 @@ export function explicitlyExcluded(prompt: string, category: Scene['allowedEvent
 		leaves: /\b(rustl\w*|leaves)\b/i,
 		water: /\b(rain|water|stream|waves|ocean)\b/i,
 		insects: /\b(insects?|animals?|wildlife|crickets?|bugs?)\b/i,
+		birds: /\b(birds?|animals?|wildlife|gulls?|chirp\w*)\b/i,
+		objects: /\b(clinks?|cups?|impacts?|objects?|tableware)\b/i,
+		machinery: /\b(machinery|machines?|appliances?|espresso|grinders?|horns?)\b/i,
 		'distant-footsteps': /\b(people|humans?|footsteps?|walkers?)\b/i,
 		'distant-wheels': /\b(vehicles?|traffic|cars?|wheels?|wagons?|carriages?)\b/i,
 	};

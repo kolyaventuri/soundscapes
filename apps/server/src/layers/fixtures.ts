@@ -19,6 +19,10 @@ export const testPlan: LayerPlan = {
 		{
 			id: 'effects', title: 'Cups', prompt: 'One gently set down cup.', required: false,
 			playback: 'sparse', gapSeconds: {minimum: 40, maximum: 120}, fadeSeconds: 1, gain: 0.2, variability: 0.2,
+			effectSources: [
+				{prompt: 'One gently set down cup.', durationSeconds: 3, gain: 0.2},
+				{prompt: 'One brief espresso steam hiss.', durationSeconds: 6, gain: 0.1},
+			],
 		},
 	],
 };

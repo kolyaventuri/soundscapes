@@ -63,6 +63,7 @@ function formatReport(report) {
 	section('1. YOUR ORIGINAL PROMPT', report.scene?.originalPrompt);
 	section('2. PARSED SCENE', report.scene?.description);
 	section('   Scene audio caption', report.scene?.audioPrompt);
+	section('   Continuous bed caption', report.scene?.ambiencePrompt);
 	section('   Constraints', report.scene?.constraints?.join('; ') || '(none)');
 	if (report.acoustics) {
 		section('3. SHARED ACOUSTIC CONTEXT', report.acoustics);

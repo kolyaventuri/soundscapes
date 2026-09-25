@@ -25,8 +25,8 @@ function hash(text: string) {
 
 export function soundPrompt(scene: Scene, detail: string, kind: SoundRequest['kind'] = 'ambience') {
 	// Lead with identifiable sources inside the encoder's short context window.
-	const caption = scene.audioPrompt || scene.originalPrompt || scene.description || scene.title;
-	return [...(kind === 'event' ? [detail, caption.slice(0, 650)] : [caption.slice(0, 650), detail]),
+	const caption = scene.ambiencePrompt || scene.audioPrompt || scene.originalPrompt || scene.description || scene.title;
+	return [...(kind === 'event' ? [detail] : [caption.slice(0, 650), detail]),
 		'Natural stereo perspective, distinct sound sources and realistic acoustic depth.',
 		...(scene.sleepMode ? ['Relaxed dynamics, gentle transitions, suitable for sleep.'] : []),
 		...scene.constraints].join(' ').slice(0, 6000);
@@ -40,8 +40,18 @@ export function generationAssetKey(scene: Scene, profile: string, description: {
 	}));
 }
 
-export function layerSoundPrompt(scene: Scene, plan: LayerPlan, policy: LayerPolicy) {
-	return [policy.prompt,
+export function layerRecording(policy: LayerPolicy, variant: number) {
+	const sourceIndex = policy.effectSources ? variant % policy.effectSources.length : undefined;
+	const source = sourceIndex === undefined ? undefined : policy.effectSources![sourceIndex];
+	return {
+		prompt: source?.prompt ?? policy.prompt, durationSeconds: source?.durationSeconds ?? clipSeconds(policy.id),
+		...(source ? {layerSource: sourceIndex!, layerGain: source.gain / policy.gain} : {}),
+	};
+}
+
+export function layerSoundPrompt(scene: Scene, plan: LayerPlan, policy: LayerPolicy, variant = 0) {
+	return [layerRecording(policy, variant).prompt,
+		...(policy.effectSources ? ['One isolated occurrence, a brief natural decay, then quiet.'] : []),
 		// Background placement is a mix policy. Condition music on a clear musical
 		// recording, not a restaurant/field recording that can regenerate the crowd.
 		policy.id === 'music' ? 'Clear stereo music recording.' : plan.acoustics,
@@ -72,7 +82,7 @@ export class GenerationService {
 		const assets: Asset[] = [];
 		const descriptions = Array.from({length: 4}, (value, variant) => ({
 			kind: 'ambience' as const, durationSeconds: 90, variant, title: `${scene.title} · bed ${variant + 1}`,
-			prompt: soundPrompt(scene, 'A continuous recording of this environment, with its characteristic ongoing activity and natural variation.'),
+			prompt: soundPrompt(scene, 'An uninterrupted field recording with a stable listening position and natural, steady dynamics.'),
 		}));
 		const profile = await this.getProfile();
 		const available = await playableAssets(this.config, this.store);
@@ -121,11 +131,11 @@ export class GenerationService {
 	}
 
 	async prepareLayerTasks(state: LayeredState, preparation: Preparation) {
-		preparation.totalBeds = state.layers.reduce((sum, layer) => sum + poolSize(layer.policy.id).initial, 0);
+		preparation.totalBeds = state.layers.reduce((sum, layer) => sum + poolSize(layer.policy).initial, 0);
 		const profile = await this.getProfile();
-		preparation.plan(state.layers.flatMap((layer, index) => Array.from({length: poolSize(layer.policy.id).initial}, (value, variant) => {
+		preparation.plan(state.layers.flatMap((layer, index) => Array.from({length: poolSize(layer.policy).initial}, (value, variant) => {
 			const id = (index * 10) + variant;
-			const timing = `layer:${hash(profile)}:${clipSeconds(layer.policy.id)}`;
+			const timing = `layer:${hash(profile)}:${layerRecording(layer.policy, variant).durationSeconds}`;
 			return [{id: `generate-${id}`, profile: `${timing}:${index === 0 && variant === 0 ? this.workerTemperature() : 'warm'}`},
 				{id: `validate-${id}`, profile: `${timing}:validate`}];
 		})).flat());
@@ -133,13 +143,14 @@ export class GenerationService {
 
 	async layerAsset(scene: Scene, {plan, policy, variant}: {plan: LayerPlan; policy: LayerPolicy; variant: number}, owner: Owner, preparation?: Preparation) {
 		const profile = await this.getProfile();
+		const recording = layerRecording(policy, variant);
 		return this.obtain(scene, {
-			kind: policy.id === 'effects' ? 'event' : 'ambience', durationSeconds: clipSeconds(policy.id), variant, layerId: policy.id,
+			...recording, kind: policy.id === 'effects' ? 'event' : 'ambience', variant, layerId: policy.id,
 			title: `${scene.title} · ${policy.title} ${variant + 1}`,
-			prompt: layerSoundPrompt(scene, plan, policy),
+			prompt: layerSoundPrompt(scene, plan, policy, variant),
 		}, owner, preparation
 			? {
-				preparation, timingProfile: `layer:${hash(profile)}:${clipSeconds(policy.id)}`,
+				preparation, timingProfile: `layer:${hash(profile)}:${recording.durationSeconds}`,
 				variant: (plan.layers.findIndex(layer => layer.id === policy.id) * 10) + variant,
 			}
 			: undefined);
@@ -151,6 +162,7 @@ export class GenerationService {
 
 	private async obtain(scene: Scene, description: {
 		kind: SoundRequest['kind']; durationSeconds: number; title: string; prompt: string; variant?: number | undefined; layerId?: LayerPolicy['id'];
+		layerGain?: number; layerSource?: number;
 		category?: NonNullable<EventProposal['category']> | undefined;
 	}, owner: Owner, tracking?: {preparation: Preparation; timingProfile: string; variant: number}) {
 		const key = sceneKey(scene);
@@ -195,6 +207,7 @@ export class GenerationService {
 
 			const asset = await this.validate(audio, request, owner.signal, {
 				title: description.title, sceneKey: key, assetKey, variant: description.variant, layerId: description.layerId, category: description.category, affinity: scene,
+				layerGain: description.layerGain, layerSource: description.layerSource,
 			});
 			owner.signal.throwIfAborted();
 			if (!owner.valid() || (owner.deadlineAt !== undefined && Date.now() >= owner.deadlineAt)) {
@@ -226,7 +239,7 @@ export class GenerationService {
 				? z.object({revision: z.string(), runtimeRevision: z.string().optional()}).parse(JSON.parse(await readFile(this.config.sound.manifest, 'utf8')))
 				: {revision: 'injected-adapter'};
 			return JSON.stringify({
-				model: this.config.sound.model, device: this.config.sound.device, ...manifest, prompt: 'scene-v2', levels: 'levels-v2',
+				model: this.config.sound.model, device: this.config.sound.device, ...manifest, prompt: 'scene-v3', levels: 'levels-v2',
 			});
 		})();
 		return this.profile;
@@ -234,6 +247,7 @@ export class GenerationService {
 
 	private async validate(audio: GeneratedAudio, request: SoundRequest, signal: AbortSignal, metadata: {
 		title: string; sceneKey: string; assetKey: string; variant?: number | undefined; layerId?: LayerPolicy['id'] | undefined;
+		layerGain?: number | undefined; layerSource?: number | undefined;
 		category?: NonNullable<EventProposal['category']> | undefined; affinity: Scene;
 	}) {
 		const expected = await checkOutputPath(this.config.sound.output, request.id, audio.path);

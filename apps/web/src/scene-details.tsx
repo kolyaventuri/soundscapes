@@ -127,7 +127,9 @@ export function SceneDetails({
 				) : (
 					<>
 						<p className="detail-label">Ambience direction</p>
-						<p>{scene.audioPrompt || scene.description}</p>
+						<p>
+							{scene.ambiencePrompt || scene.audioPrompt || scene.description}
+						</p>
 						<p>
 							Ambience crossfades continuously. Occasional sounds are planned
 							during playback; the planner may choose quiet or reuse a

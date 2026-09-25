@@ -29,7 +29,15 @@ export function assertBeachPlan(plan: LayerPlan) {
 	assert.doesNotMatch(plan.acoustics, /restaurant|sun|gulls|waves|music/i);
 }
 
-export const cafePrompt = 'Inside a busy cafe: espresso machine, clinking cups, indistinct crowd conversation and soft jazz piano played in the room.';
+export const cafePrompt = 'Inside a busy cafe: a continuously humming espresso machine, clinking cups, indistinct crowd conversation and soft jazz piano played in the room.';
+export const neighborhoodPrompt = 'Seated at a table inside a small neighborhood cafe during a moderately busy afternoon. '
+	+ 'A steady murmur of overlapping conversations fills the room, with occasional nearby cup and saucer clinks and brief espresso machine sounds behind the counter. '
+	+ 'No music. No individual conversation should dominate.';
+export const creekPrompt = 'Sitting beside a small creek in a leafy forest on a calm afternoon. '
+	+ 'Water trickles steadily over stones nearby. Leaves rustle softly overhead, with occasional birds calling further away. '
+	+ 'No rain, wind gusts, people, or music.';
+export const cruisePrompt = 'Relaxing on the pool deck of a cruise ship on a calm day at sea. You can hear people in the distance having conversation, '
+	+ 'there\'s light music playing but it\'s pretty quiet. Every now and then however, the still is broken by the ships absolutely deafening fog horn.';
 export const rainPrompt = 'A sheltered woodland at night in autumn. Steady soft rain on leaves, mild temperature, no wind. '
 	+ 'No people, voices, music, animals, thunder or sharp sounds.';
 
@@ -53,7 +61,23 @@ export async function checkLayerPlans(planner: OllamaPlanner, signal: AbortSigna
 	assert.doesNotMatch(layeredBand.layers.find(layer => layer.id === 'ambience')!.prompt, /audience|murmur|conversation|jazz|band|clink/i);
 	const layeredBeach = await planner.planLayers({...cafe, originalPrompt: beachPrompt}, signal);
 	assertBeachPlan(layeredBeach);
+	const neighborhood = await planner.planLayers({...cafe, originalPrompt: neighborhoodPrompt}, signal);
+	assert.doesNotMatch(neighborhood.layers.find(layer => layer.id === 'ambience')!.prompt, /espresso|steam|grind|hiss/i);
+	assert.ok(!neighborhood.layers.some(layer => layer.id === 'music'));
+	const sources = neighborhood.layers.find(layer => layer.id === 'effects')!.effectSources!;
+	assert.ok(sources.some(source => /espresso|steam/i.test(source.prompt) && !/cup|saucer|clink/i.test(source.prompt)));
+	assert.ok(sources.some(source => /cup|saucer|clink/i.test(source.prompt) && !/espresso|steam/i.test(source.prompt) && source.durationSeconds <= 4));
+	assert.doesNotMatch(layeredBeach.layers.find(layer => layer.id === 'music')!.prompt, /jazz/i);
+	const cruise = await planner.planLayers({...cafe, originalPrompt: cruisePrompt}, signal);
+	assert.doesNotMatch(cruise.layers.find(layer => layer.id === 'ambience')!.prompt, /horn|blast/i);
+	assert.equal(cruise.layers.find(layer => layer.id === 'activity')?.playback, 'continuous');
+	assert.equal(cruise.layers.find(layer => layer.id === 'music')?.playback, 'continuous');
+	const horn = cruise.layers.find(layer => layer.id === 'effects')!;
+	assert.equal(horn.playback, 'sparse');
+	assert.ok(horn.gapSeconds.minimum >= 45);
+	assert.ok(horn.effectSources?.some(source => /horn/i.test(source.prompt)));
+	assert.doesNotMatch(horn.prompt, /conversation|chatter|music/i);
 	return {
-		layeredCafe, layeredRain, layeredBand, layeredBeach,
+		layeredCafe, layeredRain, layeredBand, layeredBeach, neighborhood, cruise,
 	};
 }

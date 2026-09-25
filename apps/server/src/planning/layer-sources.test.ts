@@ -1,7 +1,7 @@
 import {expect, it} from 'vitest';
 import {layerPolicySchema, sceneSchema} from '@soundscapes/shared';
-import {createLayeredState, layeredStateSchema} from '../layers/timeline.js';
-import {layerSoundPrompt} from '../generation/service.js';
+import {createLayeredState, layeredStateSchema, poolSize} from '../layers/timeline.js';
+import {layerSoundPrompt, layerRecording} from '../generation/service.js';
 import {soundRequestSchema} from '../generation/contracts.js';
 import {compileLayerSources} from './layer-sources.js';
 
@@ -25,7 +25,7 @@ it('preserves continuous surf beneath diners, separate music and occasional gull
 	expect(plan.layers[0]).toMatchObject({required: true, playback: 'continuous', gapSeconds: {minimum: 0, maximum: 0}});
 	expect(plan.layers[1]).toMatchObject({required: true, playback: 'continuous'});
 	expect(plan.layers[3]).toMatchObject({required: false, playback: 'sparse'});
-	expect(plan.layers.map(layer => layer.gain)).toEqual([0.7, 0.7, 1, 0.45]);
+	expect(plan.layers.map(layer => layer.gain)).toEqual([0.4, 0.7, 1, 0.45]);
 	expect(plan.layers[1]?.prompt).toMatch(/^Caribbean music\./);
 	expect(plan.acoustics).not.toMatch(/restaurant|waves|gulls|sun|music/i);
 });
@@ -53,9 +53,39 @@ it('preserves four maximum-sized sources through compilation, saved state and th
 		expect(policy.prompt).toHaveLength(1211);
 		expect(policy.prompt).toBe(sources.map(source => `${source.name}. ${source.caption}`).join(' '));
 		const prompt = layerSoundPrompt(scene, plan, policy);
-		expect(prompt).toContain(policy.prompt);
+		expect(prompt).toContain(id === 'effects' ? policy.effectSources![0]!.prompt : policy.prompt);
+		if (id === 'effects') {
+			expect(policy.effectSources).toHaveLength(4);
+			expect(prompt).not.toContain(sources[1]!.caption);
+			expect(poolSize(policy).initial).toBe(4);
+		}
+
 		expect(soundRequestSchema.shape.prompt.parse(prompt)).toBe(prompt);
 	}
+});
+
+it('generates separate short effects and retains their individual prominence through persistence', () => {
+	const plan = compileLayerSources({
+		...inventory, occasionalEffects: [
+			{
+				name: 'Cup', caption: 'One cup touches a saucer.', prominence: 'background', durationSeconds: 3,
+			},
+			{
+				name: 'Espresso', caption: 'A brief hiss of steam.', prominence: 'distant', durationSeconds: 6,
+			},
+		],
+	});
+	const serialized = JSON.stringify(createLayeredState(plan, 42));
+	const restored = layeredStateSchema.parse(JSON.parse(serialized));
+	const policy = restored.plan.layers.find(layer => layer.id === 'effects')!;
+	expect(layerRecording(policy, 0)).toEqual({
+		prompt: 'Cup. One cup touches a saucer.', durationSeconds: 3, layerSource: 0, layerGain: 1,
+	});
+	expect(layerRecording(policy, 1)).toMatchObject({prompt: 'Espresso. A brief hiss of steam.', durationSeconds: 6, layerSource: 1});
+	expect(layerRecording(policy, 1).layerGain).toBeCloseTo(0.45 / 0.7);
+	expect(layerRecording(policy, 2)).toEqual(layerRecording(policy, 0));
+	const legacy = {...policy, effectSources: undefined};
+	expect(layerRecording(legacy, 0)).toEqual({prompt: policy.prompt, durationSeconds: 10});
 });
 
 it('keeps source and compiled layer inputs bounded', () => {
