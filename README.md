@@ -287,7 +287,7 @@ Connect the phone to the same trusted network as the server and use its reachabl
 1. Prepare a scene, start playback, connect the intended audio device, and lock the phone. Listen across several clip transitions.
 2. Pause from the lock screen. With no other listeners, verify idle status, stopped rendering, no producer PID, and a frozen scene clock. Resume playback.
 3. Disconnect the network without pausing. After the idle timeout, verify that rendering stops. Reconnect and check recovery.
-4. For endurance testing, record eight hours of active playback with the soak recorder. Ensure the audio device's own sleep timer will not pause the run early.
+4. For endurance testing, record eight hours of active playback on a locked physical iPhone with the soak recorder; the built-in speaker is sufficient. Bluetooth playback and controls are checked separately with short interaction checks. A separate Bluetooth endurance run is not required; follow up on reported Bluetooth issues.
 5. Check representative scenes for recognizable sources, comfortable levels, smooth transitions, and distracting repetition. Record audible interruptions and deliberate pauses separately from server telemetry.
 
 Desktop, automated, and physical-device evidence establish different things. Keep that distinction in release acceptance; a healthy recorder report alone does not establish listening quality.

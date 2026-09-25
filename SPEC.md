@@ -2031,7 +2031,7 @@ The prototype is successful when all of the following work:
 
 19. Session may resume without recreating the entire world.
 
-20. The application can run unattended for at least eight hours.
+20. The application can run unattended for at least eight hours. Validate endurance on a locked physical iPhone; speaker output is sufficient. Bluetooth routing and controls are separate short interaction checks, not a second endurance requirement. Further Bluetooth testing is optional and issue-driven.
 
 ---
 
