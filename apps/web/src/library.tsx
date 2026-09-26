@@ -3,18 +3,24 @@ import {
 	sceneDeletionResultSchema,
 	type SavedScene,
 } from '@soundscapes/shared';
-import {useEffect, useState} from 'react';
+import {useEffect, useRef, useState} from 'react';
 import {request} from './api.js';
 import {SceneDescription} from './scene-details.js';
 
 export function SceneLibrary({
 	revision,
 	isUsable,
+	isBusy,
+	canRegenerate,
+	onRegenerate,
 	onUse,
 	onDelete,
 }: {
 	readonly revision: string;
 	readonly isUsable: boolean;
+	readonly isBusy: boolean;
+	readonly canRegenerate: (scene: SavedScene) => boolean;
+	readonly onRegenerate: (scene: SavedScene) => Promise<void>;
 	readonly onUse: (scene: SavedScene) => void;
 	readonly onDelete: (closedSessionIds: string[]) => void;
 }) {
@@ -28,8 +34,11 @@ export function SceneLibrary({
 	const [error, setError] = useState('');
 	const [deleting, setDeleting] = useState<string>();
 	const [notice, setNotice] = useState('');
+	const [regenerating, setRegenerating] = useState<string>();
+	const actionPending = useRef(false);
 
 	async function deleteScene(saved: SavedScene) {
+		if (actionPending.current || isBusy) return;
 		if (
 			// eslint-disable-next-line no-alert -- Native confirmation is intentional for permanent scene deletion.
 			!globalThis.confirm(
@@ -39,6 +48,7 @@ export function SceneLibrary({
 			return;
 		}
 
+		actionPending.current = true;
 		setDeleting(saved.id);
 		setError('');
 		setNotice('');
@@ -68,7 +78,37 @@ export function SceneLibrary({
 					: 'Could not delete the saved scene',
 			);
 		} finally {
+			actionPending.current = false;
 			setDeleting(undefined);
+		}
+	}
+
+	async function regenerateScene(saved: SavedScene) {
+		if (actionPending.current || !canRegenerate(saved)) return;
+
+		if (
+			// eslint-disable-next-line no-alert -- Replacing saved audio intentionally requires confirmation.
+			!globalThis.confirm(
+				`Regenerate “${saved.scene.title}” and replace its audio? Its current sessions will close.`,
+			)
+		)
+			return;
+		actionPending.current = true;
+		setRegenerating(saved.id);
+		setError('');
+		setNotice('');
+		try {
+			await onRegenerate(saved);
+		} catch (error_) {
+			setError(
+				error_ instanceof Error
+					? error_.message
+					: 'Could not regenerate the scene',
+			);
+		} finally {
+			actionPending.current = false;
+			setRegenerating(undefined);
+			setRefresh((value) => value + 1);
 		}
 	}
 
@@ -128,7 +168,8 @@ export function SceneLibrary({
 			<p className="sessions-help">
 				Prepared scenes are saved here, even after you close them. Reuse a
 				description and its settings to prepare a new session; available
-				recordings may be reused.
+				recordings may be reused. Regenerate scene replaces its audio with fresh
+				recordings using the same description and settings.
 			</p>
 			<form
 				className="library-search"
@@ -160,7 +201,7 @@ export function SceneLibrary({
 			{isUsable ? null : (
 				<p className="sessions-help">
 					You can browse while listening. Stop the current session before using
-					another description.
+					another description or regenerating a different scene.
 				</p>
 			)}
 			{loading ? (
@@ -234,7 +275,9 @@ export function SceneLibrary({
 								<div className="session-actions">
 									<button
 										type="button"
-										disabled={!isUsable}
+										disabled={
+											!isUsable || Boolean(deleting) || Boolean(regenerating)
+										}
 										onClick={() => {
 											onUse(saved);
 										}}
@@ -244,7 +287,26 @@ export function SceneLibrary({
 									</button>
 									<button
 										type="button"
-										disabled={Boolean(deleting)}
+										disabled={
+											!canRegenerate(saved) ||
+											Boolean(deleting) ||
+											Boolean(regenerating)
+										}
+										onClick={() => {
+											void regenerateScene(saved);
+										}}
+									>
+										{regenerating === saved.id
+											? 'Regenerating…'
+											: 'Regenerate scene'}
+										<span className="sr-only"> {saved.scene.title}</span>
+									</button>
+									<button
+										type="button"
+										className="quiet-action"
+										disabled={
+											isBusy || Boolean(deleting) || Boolean(regenerating)
+										}
 										onClick={() => {
 											void deleteScene(saved);
 										}}

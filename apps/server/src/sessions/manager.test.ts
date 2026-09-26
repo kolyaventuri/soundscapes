@@ -730,3 +730,74 @@ it('serializes orphan cleanup against new preparation and waits for cancelled ge
 		wait.mockRestore();
 	}
 });
+
+it('rejects regeneration before deletion when generation is disabled or unrelated sessions fill capacity', async () => {
+	const {manager, config, store} = await setup();
+	const saved = {
+		scene: sceneSchema.parse({
+			title: 'Rain', originalPrompt: 'Rain at the window', sleepMode: true, simulatedStart: '2000-01-01T01:00:00Z',
+		}),
+		generationMode: 'simple' as const, layerPlan: null, savedAt: '2026-09-24T00:00:00Z',
+	};
+	const id = store.rememberScene(saved);
+	await expect(manager.regenerateScene(id)).rejects.toMatchObject({statusCode: 503});
+	expect(store.scene(id)).toMatchObject(saved);
+	config.sound.enabled = true;
+	for (let index = 0; index < 4; index++) {
+		manager.create();
+	}
+
+	await expect(manager.regenerateScene(id)).rejects.toMatchObject({statusCode: 409});
+	expect(store.scene(id)).toMatchObject(saved);
+	expect(manager.list().sessions).toHaveLength(4);
+	await expect(manager.regenerateScene(randomUUID())).rejects.toMatchObject({statusCode: 404});
+});
+
+it.each(['simple', 'layered'] as const)('reserves capacity and drains deletion before regenerating saved %s settings', async generationMode => {
+	const {manager, config, store} = await setup();
+	const saved = {
+		scene: sceneSchema.parse({
+			title: 'Rain', originalPrompt: 'Rain at the window', sleepMode: true, simulatedStart: '2000-01-01T01:00:00Z',
+		}),
+		generationMode, layerPlan: null, savedAt: '2026-09-24T00:00:00Z',
+	};
+	const id = store.rememberScene(saved);
+	const unrelated = Array.from({length: 3}, () => manager.create());
+	await Promise.all(unrelated.map(async ({session, listenerId}) => manager.playlist(session.id, listenerId)));
+	config.sound.enabled = true;
+	let finish!: () => void;
+	const pending = new Promise<void>(resolve => {
+		finish = resolve;
+	});
+	const wait = vi.spyOn(GenerationService.prototype, 'settled').mockImplementationOnce(async () => pending);
+	let create: {mockRestore: () => void} | undefined;
+	try {
+		const regeneration = manager.regenerateScene(id);
+		await vi.waitFor(() => {
+			expect(wait).toHaveBeenCalled();
+		});
+		expect(store.scene(id)).toBeDefined();
+		expect(() => manager.create()).toThrow('maximum 4');
+		await expect(manager.regenerateScene(id)).rejects.toMatchObject({statusCode: 409});
+		create = vi.spyOn(manager, 'create').mockImplementation((mode, prompt, sleepMode, generationMode) => {
+			expect(store.scene(id)).toBeUndefined();
+			expect({
+				mode, prompt, sleepMode, generationMode,
+			}).toEqual({
+				mode: 'ambience', prompt: saved.scene.originalPrompt, sleepMode: true, generationMode: saved.generationMode,
+			});
+			return unrelated[0]!;
+		});
+		finish();
+		expect(await regeneration).toMatchObject({closedSessionIds: []});
+		expect(create).toHaveBeenCalledTimes(1);
+		expect(manager.list().sessions.map(session => session.id)).toEqual(expect.arrayContaining(unrelated.map(connection => connection.session.id)));
+	} finally {
+		finish();
+		create?.mockRestore();
+		wait.mockRestore();
+	}
+
+	// The reservation is released even though the replacement is stubbed here.
+	expect(manager.create().session.status).toBe('initializing');
+});

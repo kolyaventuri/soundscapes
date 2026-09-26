@@ -1,5 +1,6 @@
 import {
 	listenerSessionSchema,
+	sceneRegenerationResultSchema,
 	sessionSchema,
 	type ListenerSession,
 	type Session,
@@ -14,9 +15,12 @@ import {StreamLevel} from './level.js';
 import {OpenSessions} from './sessions.js';
 import {SceneDetails} from './scene-details.js';
 import {SceneLibrary} from './library.js';
-import {PlaybackDiagnostics} from './recordings.js';
+import {DiagnosticsPage} from './diagnostics.js';
+import {RouteLink, usePathname} from './navigation.js';
 
 function restoreConnection() {
+	// A direct diagnostic visit is passive; internal navigation keeps the player mounted.
+	if (globalThis.location.pathname === '/diagnostics') return undefined;
 	try {
 		const stored = sessionStorage.getItem('soundscapes-listener');
 		if (!stored) {
@@ -201,6 +205,7 @@ function libraryRevision(
 }
 
 export function App() {
+	const isDiagnostics = usePathname() === '/diagnostics';
 	const [connection, setConnection] = useState<ListenerSession | undefined>(
 		restoreConnection,
 	);
@@ -299,6 +304,18 @@ export function App() {
 		};
 	}, [id, updateSession, forgetSession]);
 
+	const acceptConnection = useCallback((result: ListenerSession) => {
+		setConnection(result);
+		// The replaced stream can report an error while its files are removed.
+		setError('');
+		globalThis.history.replaceState(null, '', `?session=${result.session.id}`);
+		try {
+			sessionStorage.setItem('soundscapes-listener', JSON.stringify(result));
+		} catch {
+			/* Playback also works without storage. */
+		}
+	}, []);
+
 	async function prepare() {
 		setBusy(true);
 		setError('');
@@ -330,17 +347,7 @@ export function App() {
 								...(prompt.trim() ? {prompt: prompt.trim()} : {}),
 							}),
 						});
-			setConnection(result);
-			globalThis.history.replaceState(
-				null,
-				'',
-				`?session=${result.session.id}`,
-			);
-			try {
-				sessionStorage.setItem('soundscapes-listener', JSON.stringify(result));
-			} catch {
-				/* Playback also works without storage. */
-			}
+			acceptConnection(result);
 		} catch (error_) {
 			setError(
 				error_ instanceof Error
@@ -418,6 +425,56 @@ export function App() {
 		[busy, connection, forgetSession],
 	);
 
+	const canRegenerate = useCallback(
+		(saved: SavedScene) => {
+			const current = connection?.session;
+			const normalize = (value: string) =>
+				value.trim().replaceAll(/\s+/g, ' ').toLowerCase();
+			return (
+				!busy &&
+				(!current ||
+					isTerminalSession(current) ||
+					normalize(current.scene?.originalPrompt ?? '') ===
+						normalize(saved.scene.originalPrompt))
+			);
+		},
+		[busy, connection],
+	);
+
+	const regenerateScene = useCallback(
+		async (saved: SavedScene) => {
+			if (!canRegenerate(saved)) return;
+			setBusy(true);
+			setError('');
+			setPrompt(saved.scene.originalPrompt);
+			setSleepMode(saved.scene.sleepMode);
+			setLayered(saved.generationMode === 'layered');
+			try {
+				const result = await request(
+					`/api/scenes/${saved.id}/regenerate`,
+					sceneRegenerationResultSchema,
+					{method: 'POST'},
+				);
+				for (const closedId of result.closedSessionIds) forgetSession(closedId);
+				acceptConnection(result);
+				setConnectionError('');
+				globalThis.scrollTo(0, 0);
+				document.querySelector<HTMLHeadingElement>('#welcome-title')?.focus();
+			} catch (error_) {
+				setError(
+					error_ instanceof Error
+						? error_.message
+						: 'Could not regenerate the scene',
+				);
+				throw error_;
+			} finally {
+				setBusy(false);
+				setSessionsRevision((value) => value + 1);
+			}
+		},
+		[canRegenerate, forgetSession, acceptConnection],
+	);
+
 	const session = connection?.session;
 	const terminal = isTerminalSession(session);
 	const join =
@@ -434,121 +491,137 @@ export function App() {
 				<span>Soundscapes</span>
 				<span className="phase-label">Local scene prototype</span>
 			</header>
-			<section aria-labelledby="welcome-title">
-				<p className="eyebrow">Step into a scene</p>
-				<h1 id="welcome-title">
-					{current ? (
-						current.title
-					) : (
-						<>
-							A place to
-							<br />
-							spend time.
-						</>
-					)}
-				</h1>
-				<p className="introduction">
-					{current
-						? 'Generated locally, for you.'
-						: 'Your setting, brought to life on your local server.'}
-				</p>
-				{showSetup ? (
-					<div className="notice">
-						<p className="notice-title">An environment of your own.</p>
-						<p>
-							Describe what you want to hear: a place, its activity, crowd
-							murmur or background music. Select sleep mode if you want gentler
-							dynamics. Preparing a new scene can take a few minutes. Leave the
-							description blank for a soft-air playback test.
-						</p>
-					</div>
-				) : null}
-				{showSetup && !join ? (
-					<>
-						<label className="scene-prompt">
-							Scene description
-							<textarea
-								id="scene-prompt"
-								value={prompt}
-								maxLength={4000}
-								rows={4}
-								disabled={busy}
-								placeholder="Central Park, October 1932, around 1 AM. Cool autumn air, light wind, sparse distant activity."
-								onChange={(event) => {
-									setPrompt(event.target.value);
-								}}
-							/>
-						</label>
-						<label className="sleep-mode">
-							<input
-								type="checkbox"
-								checked={sleepMode}
-								disabled={busy}
-								onChange={(event) => {
-									setSleepMode(event.target.checked);
-								}}
-							/>
-							Sleep mode{' '}
-							<span>
-								Gentler dynamics; keeps requested music and crowd murmur.
-							</span>
-						</label>
-						<LayeredOption
-							isLayered={layered}
-							isBusy={busy}
-							onChange={setLayered}
-						/>
-					</>
-				) : null}
-				{showSetup ? (
-					<button
-						className="primary"
-						type="button"
-						disabled={preparationDisabled(busy, layered, prompt, join)}
-						onClick={() => {
-							void prepare();
-						}}
-					>
-						{busy ? 'Please wait…' : prepareLabel}
-					</button>
-				) : null}
-				{connection ? (
-					<SessionPlayback
-						connection={connection}
-						isBusy={busy}
-						isConnected={!connectionError}
-						onStop={stop}
-						onSession={updateSession}
-						onError={setError}
-					/>
-				) : null}
-				{session ? (
-					<SceneDetails session={session} isConnected={!connectionError} />
-				) : null}
-				{message ? (
-					<p className="error" role="alert">
-						{message}
+			<div className="app-content" hidden={isDiagnostics}>
+				<section aria-labelledby="welcome-title">
+					<p className="eyebrow">Step into a scene</p>
+					<h1 id="welcome-title" tabIndex={-1}>
+						{current ? (
+							current.title
+						) : (
+							<>
+								A place to
+								<br />
+								spend time.
+							</>
+						)}
+					</h1>
+					<p className="introduction">
+						{current
+							? 'Generated locally, for you.'
+							: 'Your setting, brought to life on your local server.'}
 					</p>
-				) : null}
-				{error ? <a href="#sessions-title">Manage open sessions</a> : null}
-			</section>
-			<PlaybackDiagnostics session={session} />
-			<OpenSessions
-				currentId={id}
-				isBusy={busy}
-				revision={sessionsRevision}
-				onClose={closeSessions}
-			/>
-			<SceneLibrary
-				revision={libraryRevision(sessionsRevision, connection)}
-				isUsable={!busy && showSetup}
-				onUse={useScene}
-				onDelete={(ids) => {
-					for (const closedId of ids) forgetSession(closedId);
-					setSessionsRevision((value) => value + 1);
-				}}
-			/>
+					{showSetup ? (
+						<div className="notice">
+							<p className="notice-title">An environment of your own.</p>
+							<p>
+								Describe what you want to hear: a place, its activity, crowd
+								murmur or background music. Select sleep mode if you want
+								gentler dynamics. Preparing a new scene can take a few minutes.
+								Leave the description blank for a soft-air playback test.
+							</p>
+						</div>
+					) : null}
+					{showSetup && !join ? (
+						<>
+							<label className="scene-prompt">
+								Scene description
+								<textarea
+									id="scene-prompt"
+									value={prompt}
+									maxLength={4000}
+									rows={4}
+									disabled={busy}
+									placeholder="Central Park, October 1932, around 1 AM. Cool autumn air, light wind, sparse distant activity."
+									onChange={(event) => {
+										setPrompt(event.target.value);
+									}}
+								/>
+							</label>
+							<label className="sleep-mode">
+								<input
+									type="checkbox"
+									checked={sleepMode}
+									disabled={busy}
+									onChange={(event) => {
+										setSleepMode(event.target.checked);
+									}}
+								/>
+								Sleep mode{' '}
+								<span>
+									Gentler dynamics; keeps requested music and crowd murmur.
+								</span>
+							</label>
+							<LayeredOption
+								isLayered={layered}
+								isBusy={busy}
+								onChange={setLayered}
+							/>
+						</>
+					) : null}
+					{showSetup ? (
+						<button
+							className="primary"
+							type="button"
+							disabled={preparationDisabled(busy, layered, prompt, join)}
+							onClick={() => {
+								void prepare();
+							}}
+						>
+							{busy ? 'Please wait…' : prepareLabel}
+						</button>
+					) : null}
+					{connection ? (
+						<SessionPlayback
+							connection={connection}
+							isBusy={busy}
+							isConnected={!connectionError}
+							onStop={stop}
+							onSession={updateSession}
+							onError={setError}
+						/>
+					) : null}
+					{session ? (
+						<SceneDetails session={session} isConnected={!connectionError} />
+					) : null}
+					{message ? (
+						<p className="error" role="alert">
+							{message}
+						</p>
+					) : null}
+					{error ? <a href="#sessions-title">Manage open sessions</a> : null}
+				</section>
+				<OpenSessions
+					currentId={id}
+					isBusy={busy}
+					revision={sessionsRevision}
+					onClose={closeSessions}
+				/>
+				<SceneLibrary
+					revision={libraryRevision(sessionsRevision, connection)}
+					isUsable={!busy && showSetup}
+					isBusy={busy}
+					canRegenerate={canRegenerate}
+					onUse={useScene}
+					onRegenerate={regenerateScene}
+					onDelete={(ids) => {
+						for (const closedId of ids) forgetSession(closedId);
+						setSessionsRevision((value) => value + 1);
+					}}
+				/>
+			</div>
+			{isDiagnostics ? (
+				<DiagnosticsPage returnUrl={id ? `/?session=${id}` : '/'} />
+			) : null}
 			<footer>
+				{isDiagnostics ? null : (
+					<p>
+						<RouteLink
+							href={id ? `/diagnostics?session=${id}` : '/diagnostics'}
+						>
+							Playback diagnostics
+						</RouteLink>
+					</p>
+				)}
 				<InstallInfo />
 				Generated locally. Shaped by your scene.
 			</footer>

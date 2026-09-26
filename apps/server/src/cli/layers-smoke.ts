@@ -8,7 +8,7 @@ import {tmpdir} from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 import {setTimeout as delay} from 'node:timers/promises';
-import {sceneSchema} from '@soundscapes/shared';
+import {sceneSchema, sceneRegenerationResultSchema} from '@soundscapes/shared';
 import {buildApp} from '../app.js';
 import {runAudioCommand} from '../audio/process.js';
 import {mixArguments, renderChunk} from '../ambience/mix.js';
@@ -301,8 +301,25 @@ try {
 		await manager!.playlist(cachedAgain.session.id, cachedAgain.listenerId);
 		assert.equal(generated - generationCount, 10, 'Fresh pool can be cached until the next deletion');
 		assert.deepEqual(manager!.debug(cachedAgain.session.id).layeredTimeline!.layers.flatMap(layer => layer.assetIds), freshIds);
-		await manager!.stop(fresh.session.id);
-		await manager!.stop(cachedAgain.session.id);
+		const recipe = store!.sceneRecipes().find(recipe => recipe.scene.originalPrompt === prompt && recipe.generationMode === 'layered')!;
+		const beforeRegenerate = generated;
+		const response = await app!.inject({method: 'POST', url: `/api/scenes/${recipe.id}/regenerate`});
+		assert.equal(response.statusCode, 202, response.body);
+		const replacement = sceneRegenerationResultSchema.parse(response.json());
+		assert.ok(replacement.closedSessionIds.includes(fresh.session.id));
+		assert.ok(replacement.closedSessionIds.includes(cachedAgain.session.id));
+		await manager!.playlist(replacement.session.id, replacement.listenerId);
+		const replacementIds = manager!.debug(replacement.session.id).layeredTimeline!.layers.flatMap(layer => layer.assetIds);
+		assert.equal(generated - beforeRegenerate, 10, 'Regenerate action must generate a complete fresh pool');
+		assert.ok(replacementIds.every(id => !freshIds.includes(id) && id !== shared.id));
+		assert.equal(manager!.get(replacement.session.id).generationMode, recipe.generationMode);
+		assert.equal(manager!.get(replacement.session.id).scene!.sleepMode, recipe.scene.sleepMode);
+		assert.equal(manager!.get(replacement.session.id).scene!.originalPrompt, recipe.scene.originalPrompt);
+		assert.ok(freshIds.every(id => !store!.assets().some(asset => asset.id === id)));
+		await stat(path.join(directory, shared.file));
+		assert.equal(manager!.get(unrelated.session.id).status, 'idle');
+		await manager!.stop(replacement.session.id);
+		console.log('PASS: Regenerate scene closes matching sessions and makes ten fresh WAVs with the saved prompt and settings.');
 		await manager!.stop(unrelated.session.id);
 		report.deletion = {
 			freshRecordings: freshIds.length, sharedWavPreserved: true, unrelatedSessionPreserved: true, restartVerified: true,

@@ -105,3 +105,23 @@ it('pre-caches only the build allowlist, keeps session IDs out of cache keys and
 		'soundscapes-shell-old',
 	);
 });
+
+it('opens the diagnostics app shell offline without caching session queries or diagnostic data', async () => {
+	const app = await worker();
+	app.fetch.mockRejectedValueOnce(new Error('Offline'));
+	const response = await app.dispatch('fetch', {
+		url: 'https://soundscape.local/diagnostics?session=private-session-id',
+		method: 'GET',
+		mode: 'navigate',
+	});
+	expect(await response!.text()).toBe('cached shell');
+	expect(app.cache.match).toHaveBeenCalledExactlyOnceWith('/');
+	expect(
+		await app.dispatch('fetch', {
+			url: 'https://soundscape.local/api/recordings',
+			method: 'GET',
+			mode: 'cors',
+		}),
+	).toBeUndefined();
+	expect(app.fetch).toHaveBeenCalledTimes(1);
+});

@@ -98,6 +98,7 @@ export function OpenSessions({
 					{listing && listing.sessions.length > 0 ? (
 						<button
 							type="button"
+							className="quiet-action"
 							disabled={isBusy}
 							onClick={() => {
 								void onClose(listing.sessions.map((session) => session.id));
@@ -147,12 +148,10 @@ export function OpenSessions({
 							{session.error ? <p className="error">{session.error}</p> : null}
 						</div>
 						<div className="session-actions">
-							{session.id !== currentId && session.status !== 'error' ? (
-								<a href={`?session=${session.id}`}>Open</a>
-							) : null}
 							<button
 								type="button"
 								disabled={isBusy}
+								className="quiet-action"
 								aria-label={`Close ${session.title} (${session.id.slice(0, 8)})`}
 								onClick={() => {
 									void onClose([session.id]);
@@ -160,6 +159,18 @@ export function OpenSessions({
 							>
 								Close
 							</button>
+							{session.id !== currentId && session.status !== 'error' ? (
+								<a
+									className="open-session"
+									href={`/?session=${session.id}`}
+									aria-disabled={isBusy}
+									onClick={(event) => {
+										if (isBusy) event.preventDefault();
+									}}
+								>
+									Open<span className="sr-only"> {session.title}</span>
+								</a>
+							) : null}
 						</div>
 					</li>
 				))}

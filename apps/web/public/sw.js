@@ -26,7 +26,7 @@ globalThis.addEventListener('fetch', event => {
 		return;
 	}
 
-	if (request.mode === 'navigate' && url.pathname === '/') {
+	if (request.mode === 'navigate' && ['/', '/diagnostics'].includes(url.pathname)) {
 		event.respondWith((async () => {
 			try {
 				return await fetch(request);

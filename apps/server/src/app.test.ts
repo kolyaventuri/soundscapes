@@ -24,6 +24,11 @@ it('serves the shared health contract alongside the built client without hiding 
 		expect(page.statusCode).toBe(200);
 		expect(page.headers['content-type']).toContain('text/html');
 		expect(page.body).toContain('Soundscapes');
+		const diagnostics = await app.inject('/diagnostics?session=unjoined');
+		expect(diagnostics.statusCode).toBe(200);
+		expect(diagnostics.body).toBe(page.body);
+		const sessions = await app.inject('/api/sessions');
+		expect(sessions.json().sessions).toEqual([]);
 		const missing = await app.inject('/api/unknown');
 		expect(missing.statusCode).toBe(404);
 		expect(missing.headers['content-type']).toContain('application/json');

@@ -106,6 +106,7 @@ export async function buildApp({logger = false, webRoot, config = readConfig(), 
 
 	if (webRoot) {
 		await app.register(fastifyStatic, {root: webRoot});
+		app.get('/diagnostics', async (request, reply) => reply.sendFile('index.html'));
 	}
 
 	return app;

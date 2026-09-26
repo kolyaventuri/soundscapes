@@ -10,7 +10,7 @@ import {request} from './api.js';
 export function PlaybackDiagnostics({
 	session,
 }: {
-	readonly session: Session | undefined;
+	readonly session: Pick<Session, 'id' | 'title' | 'status'> | undefined;
 }) {
 	const [recordings, setRecordings] = useState<Recording[]>([]);
 	const [minutes, setMinutes] = useState<5 | 480>(5);
@@ -98,7 +98,7 @@ export function PlaybackDiagnostics({
 			aria-labelledby="diagnostics-title"
 		>
 			<div className="sessions-heading">
-				<h2 id="diagnostics-title">Playback diagnostics</h2>
+				<h2 id="diagnostics-title">Recording controls</h2>
 				<button
 					type="button"
 					disabled={busy}
@@ -206,8 +206,8 @@ export function PlaybackDiagnostics({
 					</button>
 					<p className="sessions-help">
 						{session?.status === 'active'
-							? `Records the current session: ${session.title}.`
-							: 'Start audio playback in this app, then start recording.'}{' '}
+							? `Records the selected session: ${session.title}.`
+							: 'Start audio playback, choose its session above, then start recording.'}{' '}
 						A five-minute check verifies setup; eight-hour acceptance is
 						separate.
 					</p>

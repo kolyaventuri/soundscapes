@@ -69,6 +69,7 @@ export const listenerSessionSchema = z.object({
 	listenerId: z.uuid(),
 	streamUrl: z.string(),
 });
+export const sceneRegenerationResultSchema = listenerSessionSchema.extend({closedSessionIds: z.array(z.uuid())});
 export const sessionLimit = 4;
 export const sessionSummarySchema = sessionSchema.pick({
 	id: true, title: true, status: true, ready: true, listenerCount: true, createdAt: true, generationMode: true, error: true,

@@ -16,7 +16,7 @@ All release checks below are complete. This section retains its existing link an
 - [x] **R2 — iPhone Scene level control.** User confirms the control works and has been using it during normal listening. Physical control acceptance is complete.
 - [x] **R3 — Rain exclusion follow-up.** User reports the focused rain scene sounds fine and noticed no thunder. This passes the listening check for the auditioned output; it does not guarantee exclusion compliance for every future generation. Stronger window patter remains optional polish.
 - [x] **R4 — Supported HTTPS entry point.** User confirms HTTPS opens on two other devices and explicitly accepts this check as complete. The earlier device-specific quirk is closed; revisit only if it recurs. This does not claim a diagnosed cause or universal Bonjour support.
-- [x] **Release handoff.** R1–R4, measured endurance and required implementation checks are accepted. The validated runtime baseline is `d7ae271` (147 tests and required FFmpeg checks); subsequent changes through this acceptance closure are documentation-only. Supported local setup and known limitations are recorded in README.md and ACCEPTANCE.md. The v0.1 prototype milestone is complete; this records acceptance, not publication or creation of a release tag.
+- [x] **Release handoff.** R1–R4, measured endurance and required implementation checks are accepted. The validated runtime baseline is `d7ae271` (147 tests and required FFmpeg checks); that acceptance closure changed documentation only. Subsequent UX work is tracked below without reopening accepted checks. Supported local setup and known limitations are recorded in README.md and ACCEPTANCE.md. The v0.1 prototype milestone is complete; this records acceptance, not publication or creation of a release tag.
 
 R1–R4 are accepted through user reports. No further release listening or endurance run is pending.
 
@@ -87,7 +87,14 @@ R1–R4 are accepted through user reports. No further release listening or endur
 - [x] CLI/PWA diagnostics, bounded server-owned recording/history, passive controls, interruption recovery and downloadable summaries.
 - [x] Fresh dependency/Python-runtime/compiled-app setup, SQLite initialization and offline generation using installed weights. A new account/full model download was not repeated; that is a coverage limit.
 - [x] Laptop and locked-iPhone endurance accepted. No separate Bluetooth endurance or sustained maximum-inference stress run is required for v0.1.
-- [x] Reconcile historical tasks and user feedback into R1–R4 and release handoff. The latest runtime change passed 147 tests, builds and required FFmpeg checks. This reconciliation changes documentation only.
+- [x] Reconcile historical tasks and user feedback into R1–R4 and release handoff. At acceptance closure, the runtime baseline passed 147 tests, builds and required FFmpeg checks; the checklist reconciliation itself changed documentation only. Subsequent UX verification is below.
+
+## Post-acceptance UX
+
+- [x] Move the entire playback diagnostic UI to `/diagnostics`, linked discreetly from the footer. Keep playback mounted during in-app navigation; direct visits only monitor existing sessions. Serve the route from the compiled app and the offline static shell without caching APIs or audio.
+- [x] Make Open the primary action in Open sessions, with Close and Close all as secondary text actions.
+- [x] Add confirmed Regenerate scene: reserve capacity, finish the existing prompt/cache/orphan-WAV deletion, then prepare the saved prompt with its Simple/Layered and Sleep settings. Preserve shared/imported files and invalidate their reuse for this prompt.
+- [x] Verification: `pnpm check` passes 151 tests plus lint, types and production builds. Real-FFmpeg smoke, lifecycle, Phase 4 and layered checks pass; regeneration creates ten fresh layered WAVs while preserving shared audio and unrelated sessions. Desktop browser checks cover uninterrupted diagnostics navigation, passive direct entry, recording start/stop/history, confirmation/cancel and fresh Simple/Sleep regeneration (four replacement WAVs, old orphan files removed). These use synthetic audio for lifecycle proof; accepted model/listening/endurance results remain complete.
 
 ## Optional advanced layering
 

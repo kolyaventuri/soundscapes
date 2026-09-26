@@ -127,6 +127,7 @@ export class SessionManager {
 	private assetCleanup: Promise<'complete' | 'pending' | 'sessions-open'> | undefined;
 	private cleanupRequested = false;
 	private readonly deletingPrompts = new Set<string>();
+	private regenerationReservations = 0;
 
 	constructor({
 		config, store = new Store(), rendererFactory = startRenderer, now = () => performance.timeOrigin + performance.now(), automaticWatchdog = true,
@@ -210,7 +211,7 @@ export class SessionManager {
 			}
 		}
 
-		if (this.records.size >= sessionLimit) {
+		if (this.records.size + this.regenerationReservations >= sessionLimit) {
 			throw new SessionError(409, `Close a session in Open sessions before creating another (maximum ${sessionLimit}).`);
 		}
 
@@ -263,6 +264,54 @@ export class SessionManager {
 
 	listScenes(query: string, offset: number) {
 		return this.store.scenes(query, offset);
+	}
+
+	async regenerateScene(id: string) {
+		const saved = this.store.scene(id);
+		if (!saved) {
+			throw new SessionError(404, 'Saved scene not found. Refresh the library.');
+		}
+
+		if (this.closing) {
+			throw new SessionError(503, 'Server is shutting down');
+		}
+
+		if (!this.config.sound.enabled) {
+			throw new SessionError(503, 'Enable local sound generation before regenerating a scene.');
+		}
+
+		if (this.assetCleanup) {
+			throw new SessionError(409, 'Finishing deleted scene cleanup. Please try again in a moment.');
+		}
+
+		this.requireAvailablePrompt(saved.scene.originalPrompt);
+		const key = sceneKey(saved.scene);
+		const unrelated = [...this.records.values()].filter(session => session.status !== 'stopped' && sceneKey(session.scene) !== key);
+		if (unrelated.length + this.regenerationReservations >= sessionLimit) {
+			throw new SessionError(409, 'Close a session in Open sessions before regenerating this scene.');
+		}
+
+		// Reserve the replacement's slot while deletion drains its generation and
+		// removes orphaned files. No replacement work starts before deletion finishes.
+		this.regenerationReservations++;
+		let deletion: Awaited<ReturnType<SessionManager['deleteScene']>>;
+		try {
+			deletion = await this.deleteScene(id);
+		} finally {
+			this.regenerationReservations--;
+		}
+
+		try {
+			return {
+				...this.create('ambience', saved.scene.originalPrompt, saved.scene.sleepMode, saved.generationMode),
+				closedSessionIds: deletion.closedSessionIds,
+			};
+		} catch (error) {
+			// Retain the recipe for retry if shutdown/cleanup prevented creation.
+			// The deleted audio and persisted cache exclusions stay deleted.
+			this.store.rememberScene(saved);
+			throw error;
+		}
 	}
 
 	async deleteScene(id: string) {

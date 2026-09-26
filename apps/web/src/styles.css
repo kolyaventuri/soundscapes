@@ -126,3 +126,16 @@ a { color: #cbd8b7; }
 .recording-download { display: inline-block; min-height: 44px; padding: 12px 0; }
 .inference-counts { display: grid; grid-template-columns: 1fr auto; gap: 6px 16px; }
 .inference-counts dd { margin: 0; font-variant-numeric: tabular-nums; }
+
+.app-content { display: contents; }
+.app-content[hidden] { display: none; }
+.session-actions { flex-wrap: wrap; }
+.session-actions .open-session { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 10px 18px; border-radius: 8px; background: #cbd8b7; color: #132a2b; text-decoration: none; }
+.open-session[aria-disabled="true"] { opacity: 0.55; cursor: wait; }
+.quiet-action { border-color: transparent; color: #aebfb5; text-decoration: underline; text-underline-offset: 3px; }
+.quiet-action:hover:not(:disabled) { color: #e9ecdf; }
+a:focus-visible { outline: 2px solid #cbd8b7; outline-offset: 4px; }
+.diagnostics-page { width: min(100%, 680px); margin: 48px auto; }
+.diagnostics-page h1 { font-size: clamp(36px, 6vw, 56px); letter-spacing: -0.035em; }
+.diagnostics-session { display: block; font-size: 14px; margin: 24px 0; }
+.diagnostics-session select { display: block; width: 100%; min-height: 44px; margin-top: 10px; padding: 10px; border: 1px solid #809477; border-radius: 8px; background: #163031; color: #e9ecdf; font: inherit; }
