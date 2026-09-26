@@ -43,7 +43,11 @@ export class OllamaPlanner implements Planner {
 			'timing describes frequency, NOT loudness: ongoing for flowing water, rain, room conversation and background music; '
 			+ 'occasional for brief, intermittent or every-now-and-then sounds such as clinks, bird calls and horn blasts, even when deafening. '
 			+ 'A creek with occasional birds has ongoing water, ongoing leaves and occasional birds as separate items. '
-			+ 'For window rain, describe droplets pattering against glass and eave drips from indoors. For crowds describe blended overlapping murmur, without a featured speaker.',
+			+ 'For window rain, describe droplets pattering against glass and eave drips from indoors.',
+			'For collective background conversation, describe overlapping conversational voices at a consistent physical distance: '
+			+ 'across the room indoors, several metres away outdoors, unless the user specifies another distance. '
+			+ 'For example: "Patrons having overlapping conversations across the room." Quiet chatter is normal conversation heard from a distance, not whispered or low-pitched voices. '
+			+ 'Preserve explicitly requested nearby, individual, foreground or whispered speech and its distance; never turn it into a distant crowd.',
 			'category identifies that source: water for flowing water/rain/waves, leaves for leaf rustling, wind for wind, insects for insect calls, birds for bird calls. '
 			+ 'objects is ONLY discrete man-made object impacts such as cup clinks or a door closing; water over stones and rustling leaves are NOT objects. '
 			+ 'machinery is machine operations (including espresso steam/hissing) or horns; distant-footsteps and distant-wheels identify those specific sounds. '
@@ -128,6 +132,7 @@ export class OllamaPlanner implements Planner {
 				'music: ONE musical ensemble if music, instruments, a band or singing is requested; otherwise null. '
 				+ 'continuity=ongoing for background music/cafe jazz, occasional for live songs with pauses. A live band normally pauses between songs unless explicitly continuous.',
 				'humanActivity: ONLY people: diners, crowd murmur, conversation, eating/drinking. null when no people are requested or clearly implied. '
+				+ 'A single person speaking or whispering a story also belongs in ongoing humanActivity; one person does not mean one brief effect. '
 				+ 'Normally ongoing; occasional only for explicitly intermittent human activity. Animals/birds NEVER belong in humanActivity.',
 				'occasionalEffects: short individual calls, impacts or brief machine operation with silence between: distant seagulls, cup clinks, door movement, espresso hiss. '
 				+ 'Distant seagulls belong HERE. Empty [] when none are requested. Do not duplicate dining tableware here unless separate occasional clinks were requested.',
@@ -144,8 +149,15 @@ export class OllamaPlanner implements Planner {
 				+ 'Never turn excluded animals, thunder, voices or music into sources. References to exclusions are not sound requests.',
 				'name labels the sound. caption describes ONLY that source positively and concretely, max 240 characters. '
 				+ 'Never include another field’s sources, even as exclusions. No sunshine, temperature, date or place label. '
-				+ 'Describe repeated breaking/splashing/receding water for surf. For crowds use blended overlapping murmur, many low voices at similar levels, '
-				+ 'heard as a roomful of people rather than a featured speaker or close microphone. Preserve singing only when requested.',
+				+ 'Describe repeated breaking/splashing/receding water for surf. Preserve singing only when requested.',
+				'Collective background conversation needs a physical listening perspective, not an instruction to make many low voices. '
+				+ 'Use normal conversational voices overlapping into a diffuse murmur, at a consistent distance from the microphone. '
+				+ 'Default to across the room indoors or several metres away outdoors; preserve any explicitly requested distance. '
+				+ 'Indoor cafe example caption: "A group of patrons having quiet conversations at tables across the room. '
+				+ 'Overlapping conversational voices blend into a diffuse murmur, with consistent distance from the microphone." '
+				+ 'Outdoor example caption: "People having overlapping conversations several metres away in the open air, blending into a diffuse crowd murmur." '
+				+ 'The words room/indoor and room reflections are ONLY for indoor scenes. Quiet does not mean whispers or low-pitched voices. '
+				+ 'Explicit requests for nearby, individual, foreground or whispered speech override this crowd default: keep that voice and its requested distance.',
 				'Music caption: describe a clear musical recording, preserving the requested genre with recognizable instrumentation, rhythm and character. '
 				+ 'Choose a compatible small ensemble if instruments were unspecified, without changing the genre: Caribbean does not imply jazz. '
 				+ 'Let accompaniment and melody vary naturally; do not narrow an unspecified genre to a single dominant instrument. Instrumental unless singing was requested. '

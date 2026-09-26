@@ -731,7 +731,7 @@ export class SessionManager {
 			abort.signal.throwIfAborted();
 			if (!session.sceneReady) {
 				session.preparation = 'Understanding your scene';
-				session.progress!.begin('scene', `planner:${this.config.planner.model}:scene-v4`, 'understanding');
+				session.progress!.begin('scene', `planner:${this.config.planner.model}:scene-v5`, 'understanding');
 				const signal = AbortSignal.any([abort.signal, AbortSignal.timeout(this.config.planner.timeoutMs)]);
 				session.scene = await abortable(this.planner.parseScene(session.scene.originalPrompt, signal, session.requestedSleepMode), signal);
 				session.sceneReady = true;
@@ -895,7 +895,7 @@ export class SessionManager {
 				throw new Error('The local planner does not support layered scenes');
 			}
 
-			progress.begin('layers', `planner:${this.config.planner.model}:layers-v3`, 'understanding');
+			progress.begin('layers', `planner:${this.config.planner.model}:layers-v4`, 'understanding');
 			const bounded = AbortSignal.any([signal, AbortSignal.timeout(layerPlanningTimeout(this.config.planner.timeoutMs))]);
 			const plan = await abortable(this.planner.planLayers(session.scene, bounded), bounded);
 			session.layered = createLayeredState(plan, session.timeline.seed);

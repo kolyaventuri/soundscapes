@@ -157,6 +157,8 @@ try {
 
 	if (real && !beach) {
 		const {plan} = manager!.debug(owner.session.id).layeredTimeline!;
+		assert.match(plan.layers.find(layer => layer.id === 'activity')!.prompt, /across the room|\b(?:distance|distant|metres|meters)\b/i);
+		assert.doesNotMatch(plan.layers.find(layer => layer.id === 'activity')!.prompt, /whisper|many low voices/i);
 		assert.doesNotMatch(plan.layers.find(layer => layer.id === 'ambience')!.prompt, /espresso|steam|clink/i);
 		const sources = plan.layers.find(layer => layer.id === 'effects')!.effectSources!;
 		assert.deepEqual(sources.find(source => /cup|clink/i.test(source.prompt))!.gapSeconds, {minimum: 20, maximum: 45});

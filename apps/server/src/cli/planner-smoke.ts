@@ -7,6 +7,7 @@ import {explicitSoundConstraints} from '../planning/scene-constraints.js';
 import {loadEnvironment, readConfig} from '../config.js';
 import {OllamaPlanner} from '../planning/ollama.js';
 import {writeJson} from '../monitoring/storage.js';
+import {checkCrowdPerspective} from './crowd-regression.js';
 import {
 	checkLayerPlans, checkSourcePolicies, cafePrompt, rainPrompt, creekPrompt,
 } from './layer-regression.js';
@@ -14,6 +15,16 @@ import {
 loadEnvironment();
 const config = readConfig();
 const planner = new OllamaPlanner(config.planner);
+if (process.argv.includes('--crowds')) {
+	const result = await checkCrowdPerspective(planner, new AbortController().signal);
+	const file = path.join(config.dataDirectory, 'planner-checks', `${Date.now()}-crowds.json`);
+	await mkdir(path.dirname(file), {recursive: true});
+	await writeJson(file, result);
+	console.log(`PASS: indoor/outdoor crowd distance, requested nearby whispers, source isolation and changed caption cache key. Evidence: ${file}`);
+	// eslint-disable-next-line unicorn/no-process-exit -- All model requests and writes are awaited.
+	process.exit(0);
+}
+
 if (process.argv.includes('--policies')) {
 	const result = await checkSourcePolicies(planner, new AbortController().signal);
 	const file = path.join(config.dataDirectory, 'planner-checks', `${Date.now()}-policies.json`);
