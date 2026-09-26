@@ -4,7 +4,7 @@ Generate environmental soundscapes from a description and stream them continuous
 
 Soundscapes runs on your own computer: Ollama interprets the scene, Stable Audio generates recordings, and FFmpeg mixes them into an AAC/HLS stream. Audio generation and playback stay local after model setup.
 
-**Status:** experimental, pre-v0.1. Audio fidelity, musical continuity, and device compatibility are still being evaluated. See [PLAN.md](PLAN.md) for the roadmap, [SPEC.md](SPEC.md) for the design, and [ACCEPTANCE.md](ACCEPTANCE.md) for verification coverage.
+**Status:** pre-v0.1. Core generation/playback is implemented, and measured laptop and locked-iPhone endurance are accepted. The remaining release checks concern simple-mode event listening, the iPhone Scene level control, rain exclusion fidelity and warning-free HTTPS entry; see the [current checklist](PLAN.md#remaining-v01-checks). Advanced layering remains an optional prototype. [SPEC.md](SPEC.md) defines the product, and [ACCEPTANCE.md](ACCEPTANCE.md) records verified behavior and limitations.
 
 ## Features
 
@@ -237,6 +237,8 @@ pnpm wav:play --session SESSION_UUID --wav WAV_NUMBER
 
 ## Record an unattended playback run
 
+The project's laptop and locked-iPhone endurance runs are complete. This procedure is for a new deployment or a specific regression investigation; it is not another outstanding release test. Bluetooth playback and controls are already accepted, with no separate Bluetooth endurance requirement.
+
 Use a fixed production build, keep the server computer powered and awake, and start playback in the browser or installed app. Do not rebuild or restart the server during the run.
 
 ### Record from the PWA
@@ -251,10 +253,10 @@ A server shutdown or crash interrupts its embedded recorder. After restart, an u
 
 ### Five-minute physical-device preflight
 
-Do this **before** the overnight acceptance run:
+For a new deployment or a regression that warrants another endurance run, use this short check first. The existing project's preflight is already accepted:
 
 1. Restart the updated server and close/reopen the installed PWA to load the new controls. For endurance, use a fixed `pnpm build` / `pnpm start` setup rather than a watching dev server. On macOS, `caffeinate -i pnpm start` prevents idle sleep while the server runs; keep the computer plugged in with its lid open. Preserve your trusted HTTPS configuration.
-2. On the test iPhone, start a prepared scene through the intended Bluetooth output. Select **5-minute check**, enter the iPhone model, iOS version and output device, then tap **Start recording**. Verify the recording title and increasing complete-sample count.
+2. On the test iPhone, start a prepared scene through its speaker or intended output. Select **5-minute check**, enter the iPhone model, iOS version and output device, then tap **Start recording**. Verify the recording title and increasing complete-sample count.
 3. Lock the screen and leave playback uninterrupted for at least five minutes. Listen before locking and after unlocking; note any audible gaps. Return to **Recent recordings**. Expect **completed**, roughly five minutes observed, matching complete/total sample counts (normally 61/61), and **No issues detected in sampled telemetry**. Download the summary.
 4. Separately, start another five-minute check and intentionally pause from the lock screen for about fifteen seconds. Verify silence and the page’s paused/ready-to-play status, then resume. Tap **Stop recording** and confirm audio keeps playing. This run should be **interrupted**, with pause/idle issues; those are expected for this deliberate control check.
 5. Close/reopen the PWA and confirm both summaries remain accessible. Reopening does not automatically resume audio. Report any missing summaries, collection errors, unexpected interruptions or audible gaps before starting the overnight run.
@@ -289,6 +291,8 @@ Results appear under `data/soaks/` (or the configured data directory): `summary.
 Exit code `0` means the requested duration completed without detected telemetry issues; `2` means interruption or issues requiring review; `1` means recorder failure. Samples may miss short interruptions and do not prove audible continuity. Session-disk totals exclude reusable assets, the database, and recorder logs; external Ollama/GPU allocation is not measured. Keep raw run artifacts local and summarize relevant results separately.
 
 ## iPhone and Bluetooth acceptance
+
+The project's transport, Bluetooth and endurance checks below have passed. Use this reference for a new environment or a reported regression; remaining release checks are listed once in [PLAN.md](PLAN.md#remaining-v01-checks).
 
 Connect the phone to the same trusted network as the server and use its reachable address. Use trusted HTTPS for installed-app checks.
 
