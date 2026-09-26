@@ -4,7 +4,7 @@ Generate environmental soundscapes from a description and stream them continuous
 
 Soundscapes runs on your own computer: Ollama interprets the scene, Stable Audio generates recordings, and FFmpeg mixes them into an AAC/HLS stream. Audio generation and playback stay local after model setup.
 
-**Status:** pre-v0.1. Core generation/playback is implemented, and measured laptop and locked-iPhone endurance are accepted. The remaining release check concerns simple-mode event listening; see the [current checklist](PLAN.md#remaining-v01-checks). Advanced layering remains an optional prototype. [SPEC.md](SPEC.md) defines the product, and [ACCEPTANCE.md](ACCEPTANCE.md) records verified behavior and limitations.
+**Status:** v0.1 prototype acceptance complete. Core generation/playback, focused listening checks, and measured laptop/locked-iPhone endurance are accepted; see the [completed checklist](PLAN.md#remaining-v01-checks). Advanced layering remains an optional prototype with further fidelity work planned. [SPEC.md](SPEC.md) defines the product, and [ACCEPTANCE.md](ACCEPTANCE.md) records verified behavior and limitations.
 
 ## Features
 

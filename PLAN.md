@@ -4,21 +4,21 @@
 
 ## Current position
 
-Phases 0–5 are implemented. Phase 6 engineering, setup verification, diagnostics and endurance are complete. The user accepts the creek repair, beach volume balance, improved chatter without constant pops, cup recording and preparation feedback. Remaining release work is the simple-mode event listening check (R1) below and the final handoff decision. There is no outstanding broad scene-fidelity sweep or overnight run.
+Phases 0–5 are implemented. Phase 6 engineering, setup verification, diagnostics and endurance are complete. The user accepts the creek repair, beach volume balance, improved chatter without constant pops, cup recording and preparation feedback. All four release checks are now accepted, including the user-reported simple-mode event listening pass. The v0.1 prototype acceptance milestone is complete.
 
-The app remains pre-v0.1 until those checks are resolved. Advanced layering is an optional prototype; its remaining fidelity and feature work does not block v0.1.
+Advanced layering remains an optional prototype; its remaining fidelity and feature work is later work, separate from the completed v0.1 milestone.
 
 ## Remaining v0.1 checks
 
-These are the only active release checks. Existing observations can close them; do not repeat a test just because it appeared in an older phase checklist.
+All release checks below are complete. This section retains its existing link anchor for references. Reopen an accepted check only for a concrete regression.
 
-- [ ] **R1 — Simple-mode event listening.** Confirm that occasional events during ordinary, default-cadence playback fit the scene, have appropriate prominence and do not sound mechanically repetitive. Real planning/generation, null decisions, reuse, timing and failure isolation already pass. Representative scene quality and crossfades have been heard; the evidence gap is explicit acceptance of the simple event planner's audible cadence. Null/skipped opportunities are expected. This is normal-use listening, not another soak or forced inference run.
+- [x] **R1 — Simple-mode event listening.** User reports the focused garden-patio test seems good after being asked to assess occasional birds/footsteps, natural spacing, appropriate prominence and uninterrupted ambience. This accepts the auditioned result; exact duration and individual event counts were not supplied.
 - [x] **R2 — iPhone Scene level control.** User confirms the control works and has been using it during normal listening. Physical control acceptance is complete.
 - [x] **R3 — Rain exclusion follow-up.** User reports the focused rain scene sounds fine and noticed no thunder. This passes the listening check for the auditioned output; it does not guarantee exclusion compliance for every future generation. Stronger window patter remains optional polish.
 - [x] **R4 — Supported HTTPS entry point.** User confirms HTTPS opens on two other devices and explicitly accepts this check as complete. The earlier device-specific quirk is closed; revisit only if it recurs. This does not claim a diagnosed cause or universal Bonjour support.
-- [ ] **Release handoff.** Resolve the remaining R1 check, record the release revision and supported setup/known limitations, then mark v0.1 complete. Do not turn optional work or missing early-run metadata into additional release gates.
+- [x] **Release handoff.** R1–R4, measured endurance and required implementation checks are accepted. The validated runtime baseline is `d7ae271` (147 tests and required FFmpeg checks); subsequent changes through this acceptance closure are documentation-only. Supported local setup and known limitations are recorded in README.md and ACCEPTANCE.md. The v0.1 prototype milestone is complete; this records acceptance, not publication or creation of a release tag.
 
-R2–R4 are accepted through user reports. R1 is a focused listening observation, not a repeat of the five-scene review. If already covered in normal use, record that evidence instead of asking for another run.
+R1–R4 are accepted through user reports. No further release listening or endurance run is pending.
 
 ## Accepted behavior and listening
 
@@ -63,7 +63,7 @@ R2–R4 are accepted through user reports. R1 is a focused listening observation
 - [x] Local Ollama/Qwen adapter: constrained JSON, bounded cancellable requests, cloud disabled and unload-after-request.
 - [x] Software-owned irregular opportunities, null decisions, context/history filtering, persisted scheduling and future-only event mixing.
 - [x] Planning/inference stays off the refill path; invalid, late or failed optional work leaves ambience playing. Sleep mode is opt-in and preserves requested music/crowds.
-- [x] Source exclusions checked in inventories, asset reuse and event proposals without banning unrelated category members. The focused rain exclusion listening check passed in R3; audible simple event cadence remains R1. Text checks do not guarantee acoustic compliance for every generation.
+- [x] Source exclusions checked in inventories, asset reuse and event proposals without banning unrelated category members. The focused rain exclusion listening check passed in R3; audible simple event cadence is accepted in R1. Text checks do not guarantee acoustic compliance for every generation.
 
 ### Phase 4 — Local sound generation
 
