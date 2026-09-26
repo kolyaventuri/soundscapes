@@ -6,7 +6,7 @@ import {tmpdir} from 'node:os';
 import {DatabaseSync} from 'node:sqlite';
 import path from 'node:path';
 import {
-	listenerSessionSchema, sceneSchema, sessionListSchema, layerPlanSchema, sceneLibrarySchema,
+	listenerSessionSchema, sceneSchema, sessionListSchema, layerPlanSchema, sceneLibrarySchema, sceneDeletionResultSchema,
 } from '@soundscapes/shared';
 import {
 	afterEach, expect, it, vi,
@@ -16,6 +16,8 @@ import {type Renderer, type RendererOptions} from '../audio/hls.js';
 import {readConfig} from '../config.js';
 import {Store, assetSchema} from '../persistence/store.js';
 import {type Planner} from '../planning/contracts.js';
+import {sceneKey} from '../assets/reuse.js';
+import {GenerationService} from '../generation/service.js';
 import {SessionManager} from './manager.js';
 
 const cleanup: Array<() => Promise<void>> = [];
@@ -618,7 +620,8 @@ it('backfills prepared pre-library sessions on upgrade without starting playback
 	await manager.close();
 	const file = path.join(config.dataDirectory, 'test.sqlite');
 	const database = new DatabaseSync(file);
-	database.exec('DROP TABLE saved_scenes; PRAGMA user_version=2;');
+	database.exec('DROP TABLE scene_assets; DROP TABLE orphan_candidates; DROP TABLE deleted_scene_prompts; DROP TABLE asset_deletions; DROP TABLE saved_scenes; PRAGMA user_version=2;');
+	database.exec('UPDATE sessions SET state=json_remove(state, \'$.savedSceneId\')');
 	database.close();
 	const restored = new SessionManager({
 		config, store: new Store(file), rendererFactory: factory, automaticWatchdog: false,
@@ -632,5 +635,93 @@ it('backfills prepared pre-library sessions on upgrade without starting playback
 		expect(parseScene).toHaveBeenCalledTimes(1);
 	} finally {
 		await restored.close();
+	}
+});
+
+it('deletes a saved scene without disturbing playback, keeps it deleted after restart, and cleans its WAVs after Close', async () => {
+	const parseScene = vi.fn(async (originalPrompt: string) => sceneSchema.parse({
+		originalPrompt, title: 'Cafe', sleepMode: false, simulatedStart: '2000-01-01T01:00:00Z',
+	}));
+	const {manager, config, store, factory, now, advance} = await setup({busy: false, parseScene, propose: vi.fn()});
+	const owner = manager.create('ambience', 'A cafe');
+	await manager.play(owner.session.id, owner.listenerId);
+	const saved = manager.listScenes('', 0).scenes[0]!;
+	const asset = assetSchema.parse({
+		id: randomUUID(), kind: 'ambience', title: 'Old generated bed', file: 'assets/ambience/deletion-test.wav',
+		durationMs: 90_000, sampleRate: 44_100, channels: 2, peakDb: -20, meanDb: -36, source: 'Generated',
+		generation: {
+			model: 'test', revision: 'test', seed: 1, prompt: 'Cafe', sceneKey: sceneKey(saved.scene), assetKey: 'a'.repeat(64),
+			createdAt: '2026-09-24T00:00:00Z', validation: 'levels-v2', elapsedMs: 1,
+		},
+	});
+	store.putAsset(asset);
+	await mkdir(path.dirname(path.join(config.dataDirectory, asset.file)), {recursive: true});
+	await writeFile(path.join(config.dataDirectory, asset.file), 'keep while open');
+	const app = await buildApp({config, sessions: manager});
+	try {
+		const producerCount = factory.mock.calls.length;
+		advance(89_000);
+		const response = await app.inject({method: 'DELETE', url: `/api/scenes/${saved.id}`});
+		expect(response.statusCode).toBe(200);
+		expect(response.headers['cache-control']).toBe('no-store');
+		expect(sceneDeletionResultSchema.parse(response.json())).toEqual({id: saved.id, cleanup: 'sessions-open'});
+		expect(manager.get(owner.session.id)).toMatchObject({status: 'active', rendering: true, listenerCount: 1});
+		expect(factory).toHaveBeenCalledTimes(producerCount);
+		expect(manager.listScenes('', 0).total).toBe(0);
+		expect(await readFile(path.join(config.dataDirectory, asset.file), 'utf8')).toBe('keep while open');
+		const missing = await app.inject({method: 'DELETE', url: `/api/scenes/${saved.id}`});
+		const invalid = await app.inject({method: 'DELETE', url: '/api/scenes/not-an-id'});
+		expect(missing.statusCode).toBe(404);
+		expect(invalid.statusCode).toBe(400);
+		advance(1001);
+		await manager.sweep();
+		expect(manager.get(owner.session.id)).toMatchObject({status: 'idle', rendering: false, listenerCount: 0});
+		await manager.play(owner.session.id, owner.listenerId);
+		expect(manager.listScenes('', 0).total).toBe(0);
+	} finally {
+		await app.close();
+	}
+
+	const restored = new SessionManager({
+		config, store: new Store(path.join(config.dataDirectory, 'test.sqlite')), rendererFactory: factory, now, automaticWatchdog: false,
+	});
+	try {
+		await restored.initialize();
+		expect(restored.listScenes('', 0).total).toBe(0);
+		expect(restored.get(owner.session.id)).toMatchObject({status: 'idle', ready: true});
+		expect(await readFile(path.join(config.dataDirectory, asset.file), 'utf8')).toBe('keep while open');
+		await restored.stop(owner.session.id);
+		await expect(readFile(path.join(config.dataDirectory, asset.file))).rejects.toMatchObject({code: 'ENOENT'});
+		expect(restored.listScenes('', 0).total).toBe(0);
+	} finally {
+		await restored.close();
+	}
+});
+
+it('serializes orphan cleanup against new preparation and waits for cancelled generation to settle', async () => {
+	const {manager, store} = await setup();
+	const id = store.rememberScene({
+		scene: sceneSchema.parse({
+			title: 'Rain', originalPrompt: 'Rain', sleepMode: false, simulatedStart: '2000-01-01T01:00:00Z',
+		}),
+		generationMode: 'simple', layerPlan: null, savedAt: '2026-09-24T00:00:00Z',
+	});
+	let finish!: () => void;
+	const pending = new Promise<void>(resolve => {
+		finish = resolve;
+	});
+	const wait = vi.spyOn(GenerationService.prototype, 'settled').mockImplementationOnce(async () => pending);
+	try {
+		const deletion = manager.deleteScene(id);
+		expect(() => manager.create()).toThrow('Finishing deleted scene cleanup');
+		await vi.waitFor(() => {
+			expect(wait).toHaveBeenCalled();
+		});
+		finish();
+		expect(await deletion).toEqual({id, cleanup: 'complete'});
+		expect(manager.create().session.status).toBe('initializing');
+	} finally {
+		finish();
+		wait.mockRestore();
 	}
 });

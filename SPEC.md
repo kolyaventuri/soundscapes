@@ -1289,6 +1289,8 @@ GET /api/scenes?q=...&offset=0
 
 Saved-scene browsing retains successfully prepared descriptions, interpreted scene metadata, and simple/layered and sleep settings independently of session lifetime. Results are searchable and paginated in groups of twelve. Selecting an entry prefills the creation form for a new session; existing sessions remain resumable through the open-session list. Browsing and the read-only scene-details panel never renew listener activity or trigger inference.
 
+Each saved scene has a Delete action with a simple “Are you sure?” confirmation. `DELETE /api/scenes/:id` removes the recipe and queues orphaned generated recordings for removal. Preserve WAVs referenced by other saved scenes and all imported recordings. Deleting a recipe does not stop its open sessions or renew their listeners; defer file cleanup until open sessions close and cancelled generation settles. Persist scene-to-recording references and pending cleanup through restart. Resuming an existing session must not recreate a deleted recipe.
+
 ---
 
 ## Assets

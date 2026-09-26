@@ -8,6 +8,7 @@ export {
 
 export {
 	savedSceneSchema, sceneLibrarySchema, sceneLibraryPageSize, type SavedScene,
+	sceneDeletionResultSchema,
 } from './library.js';
 
 export {

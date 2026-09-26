@@ -1,4 +1,8 @@
-import {sceneLibrarySchema, type SavedScene} from '@soundscapes/shared';
+import {
+	sceneLibrarySchema,
+	sceneDeletionResultSchema,
+	type SavedScene,
+} from '@soundscapes/shared';
 import {useEffect, useState} from 'react';
 import {request} from './api.js';
 import {SceneDescription} from './scene-details.js';
@@ -20,6 +24,51 @@ export function SceneLibrary({
 	const [refresh, setRefresh] = useState(0);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState('');
+	const [deleting, setDeleting] = useState<string>();
+	const [notice, setNotice] = useState('');
+
+	async function deleteScene(saved: SavedScene) {
+		if (
+			// eslint-disable-next-line no-alert -- Native confirmation is intentional for permanent scene deletion.
+			!globalThis.confirm(
+				`Delete “${saved.scene.title}”? This can’t be undone.`,
+			)
+		) {
+			return;
+		}
+
+		setDeleting(saved.id);
+		setError('');
+		setNotice('');
+		try {
+			const result = await request(
+				`/api/scenes/${saved.id}`,
+				sceneDeletionResultSchema,
+				{method: 'DELETE'},
+			);
+			setNotice(
+				result.cleanup === 'sessions-open'
+					? 'Scene deleted. Unused recordings will be cleaned up when open sessions close. Shared recordings are kept.'
+					: result.cleanup === 'pending'
+						? 'Scene deleted. Some unused files could not be removed yet; cleanup will retry on server restart.'
+						: 'Scene deleted. Unused recordings removed; shared recordings kept.',
+			);
+			if (listing?.scenes.length === 1 && offset > 0) {
+				setOffset(Math.max(0, offset - listing.limit));
+			}
+
+			setRefresh((value) => value + 1);
+		} catch (error_) {
+			setError(
+				error_ instanceof Error
+					? error_.message
+					: 'Could not delete the saved scene',
+			);
+		} finally {
+			setDeleting(undefined);
+		}
+	}
+
 	useEffect(() => {
 		const controller = new AbortController();
 		setLoading(true);
@@ -32,7 +81,16 @@ export function SceneLibrary({
 					sceneLibrarySchema,
 					{signal: controller.signal},
 				);
-				if (!controller.signal.aborted) setListing(result);
+				if (!controller.signal.aborted) {
+					if (offset > 0 && result.scenes.length === 0) {
+						setOffset(
+							Math.max(0, Math.ceil(result.total / result.limit) - 1) *
+								result.limit,
+						);
+					} else {
+						setListing(result);
+					}
+				}
 			} catch (error_) {
 				if (!controller.signal.aborted)
 					setError(
@@ -112,6 +170,11 @@ export function SceneLibrary({
 					{error}
 				</p>
 			) : null}
+			{notice ? (
+				<p role="status" className="sessions-help">
+					{notice}
+				</p>
+			) : null}
 			{listing ? (
 				<>
 					<p className="sessions-help" role="status">
@@ -165,16 +228,28 @@ export function SceneLibrary({
 										) : null}
 									</div>
 								</details>
-								<button
-									type="button"
-									disabled={!isUsable}
-									onClick={() => {
-										onUse(saved);
-									}}
-								>
-									Use description
-									<span className="sr-only"> for {saved.scene.title}</span>
-								</button>
+								<div className="session-actions">
+									<button
+										type="button"
+										disabled={!isUsable}
+										onClick={() => {
+											onUse(saved);
+										}}
+									>
+										Use description
+										<span className="sr-only"> for {saved.scene.title}</span>
+									</button>
+									<button
+										type="button"
+										disabled={Boolean(deleting)}
+										onClick={() => {
+											void deleteScene(saved);
+										}}
+									>
+										{deleting === saved.id ? 'Deleting…' : 'Delete'}
+										<span className="sr-only"> {saved.scene.title}</span>
+									</button>
+								</div>
 							</li>
 						))}
 					</ul>

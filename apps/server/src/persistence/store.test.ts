@@ -12,7 +12,7 @@ it('migrates a v1 database without dropping sessions and bounds preparation timi
 	const directory = await mkdtemp(path.join(tmpdir(), 'soundscapes-timing-'));
 	const file = path.join(directory, 'test.sqlite');
 	const legacy = new DatabaseSync(file);
-	legacy.exec('CREATE TABLE sessions (id TEXT PRIMARY KEY, state TEXT NOT NULL); PRAGMA user_version=1;');
+	legacy.exec('CREATE TABLE sessions (id TEXT PRIMARY KEY, state TEXT NOT NULL); CREATE TABLE assets (id TEXT PRIMARY KEY, metadata TEXT NOT NULL); PRAGMA user_version=1;');
 	legacy.prepare('INSERT INTO sessions VALUES (?, ?)').run('existing', '{"elapsedMs":42}');
 	legacy.close();
 	const store = new Store(file);
@@ -102,7 +102,7 @@ it('migrates v2 and retains searchable, deduplicated scene recipes independently
 	const directory = await mkdtemp(path.join(tmpdir(), 'soundscapes-library-'));
 	const file = path.join(directory, 'test.sqlite');
 	const legacy = new DatabaseSync(file);
-	legacy.exec('CREATE TABLE sessions (id TEXT PRIMARY KEY, state TEXT NOT NULL); PRAGMA user_version=2;');
+	legacy.exec('CREATE TABLE sessions (id TEXT PRIMARY KEY, state TEXT NOT NULL); CREATE TABLE assets (id TEXT PRIMARY KEY, metadata TEXT NOT NULL); PRAGMA user_version=2;');
 	legacy.prepare('INSERT INTO sessions VALUES (?, ?)').run('original', '{"elapsedMs":42}');
 	legacy.close();
 	let store = new Store(file);

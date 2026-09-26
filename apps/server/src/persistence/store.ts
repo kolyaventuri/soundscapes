@@ -5,6 +5,13 @@ import {
 	eventCategorySchema, sceneSchema, savedSceneSchema, sceneLibraryPageSize, type SavedScene,
 } from '@soundscapes/shared';
 import {generationMetadataSchema} from '../generation/contracts.js';
+import {contextCompatible, sceneKey} from '../assets/reuse.js';
+
+function recipeFingerprint(value: Pick<SavedScene, 'scene' | 'generationMode'>) {
+	return createHash('sha256').update(JSON.stringify([
+		value.scene.originalPrompt.trim(), value.scene.sleepMode, value.generationMode,
+	])).digest('hex');
+}
 
 export const assetSchema = z.object({
 	id: z.uuid(), kind: z.enum(['ambience', 'event']), title: z.string(),
@@ -28,7 +35,7 @@ export class Store {
 		this.db = new DatabaseSync(file);
 		this.db.exec('PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;');
 		const version = this.db.prepare('PRAGMA user_version').get()!.user_version;
-		if (version !== 0 && version !== 1 && version !== 2 && version !== 3) {
+		if (version !== 0 && version !== 1 && version !== 2 && version !== 3 && version !== 4) {
 			this.db.close();
 			throw new Error(`Unsupported database version ${String(version)}`);
 		}
@@ -49,21 +56,117 @@ export class Store {
 				PRAGMA user_version=2; COMMIT;`);
 		}
 
-		if (version !== 3) {
+		if (Number(version) < 3) {
 			this.db.exec(`BEGIN IMMEDIATE;
 				CREATE TABLE saved_scenes (id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL UNIQUE, saved_at TEXT NOT NULL, data TEXT NOT NULL);
 				CREATE INDEX scenes_by_date ON saved_scenes(saved_at DESC, id);
 				PRAGMA user_version=3; COMMIT;`);
 		}
+
+		if (Number(version) < 4) {
+			this.transaction(() => {
+				this.db.exec(`
+					CREATE TABLE IF NOT EXISTS scene_assets (
+						scene_id TEXT NOT NULL REFERENCES saved_scenes(id) ON DELETE CASCADE,
+						asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+						PRIMARY KEY (scene_id, asset_id));
+					CREATE INDEX IF NOT EXISTS scenes_by_asset ON scene_assets(asset_id);
+					CREATE TABLE IF NOT EXISTS orphan_candidates (asset_id TEXT PRIMARY KEY REFERENCES assets(id) ON DELETE CASCADE);
+					CREATE TABLE IF NOT EXISTS deleted_scene_prompts (key TEXT PRIMARY KEY);
+					CREATE TABLE IF NOT EXISTS asset_deletions (file TEXT PRIMARY KEY);
+					PRAGMA user_version=4;`);
+				// Legacy provenance identifies the original prompt, not its mode. Keep
+				// those recordings shared by every saved version of that prompt.
+				const assets = this.assets();
+				for (const saved of this.sceneRecipes()) {
+					const key = sceneKey(saved.scene);
+					this.linkSceneAssets(saved.id, assets.filter(asset => asset.generation && (
+						asset.generation.sceneKey === key
+						// Older closed sessions did not retain cross-scene reuse links.
+						// Conservatively keep previously used, compatible event recordings.
+						|| (asset.kind === 'event' && asset.usageCount > 0 && contextCompatible(asset, saved.scene))
+					)).map(asset => asset.id));
+				}
+			});
+		}
+	}
+
+	scene(id: string) {
+		const row = this.db.prepare('SELECT data FROM saved_scenes WHERE id=?').get(id);
+		return row ? savedSceneSchema.parse(JSON.parse(String(row.data))) : undefined;
+	}
+
+	sceneRecipes(): SavedScene[] {
+		return this.db.prepare('SELECT data FROM saved_scenes ORDER BY id').all()
+			.map(row => savedSceneSchema.parse(JSON.parse(String(row.data))));
+	}
+
+	findScene(value: Pick<SavedScene, 'scene' | 'generationMode'>) {
+		const row = this.db.prepare('SELECT id FROM saved_scenes WHERE fingerprint=?').get(recipeFingerprint(value));
+		return row ? String(row.id) : undefined;
+	}
+
+	linkSceneAssets(id: string, assetIds: string[]) {
+		const link = this.db.prepare(`INSERT OR IGNORE INTO scene_assets SELECT ?, id FROM assets
+			WHERE id=? AND EXISTS (SELECT 1 FROM saved_scenes WHERE id=?)`);
+		for (const assetId of new Set(assetIds)) {
+			link.run(id, assetId, id);
+		}
+	}
+
+	deleteScene(id: string) {
+		this.transaction(() => {
+			const saved = this.scene(id);
+			if (!saved) {
+				return;
+			}
+
+			this.db.prepare('INSERT OR IGNORE INTO deleted_scene_prompts VALUES (?)').run(sceneKey(saved.scene));
+			this.db.prepare(`INSERT OR IGNORE INTO orphan_candidates
+				SELECT asset_id FROM scene_assets JOIN assets ON assets.id=asset_id
+				WHERE scene_id=? AND json_extract(metadata, '$.generation') IS NOT NULL`).run(id);
+			this.db.prepare('DELETE FROM saved_scenes WHERE id=?').run(id);
+		});
+	}
+
+	retireOrphanedAssets() {
+		this.transaction(() => {
+			// Include older cached variants and results that finished while a deleted
+			// scene's session was closing. Call only after all audio work has settled.
+			this.db.exec(`INSERT OR IGNORE INTO orphan_candidates SELECT id FROM assets
+				WHERE json_extract(metadata, '$.generation.sceneKey') IN (SELECT key FROM deleted_scene_prompts)`);
+			const assets = this.db.prepare(`SELECT metadata FROM assets JOIN orphan_candidates ON assets.id=asset_id
+				WHERE NOT EXISTS (SELECT 1 FROM scene_assets WHERE scene_assets.asset_id=assets.id)`)
+				.all().map(row => assetSchema.parse(JSON.parse(String(row.metadata))));
+			for (const asset of assets) {
+				this.db.prepare('DELETE FROM assets WHERE id=?').run(asset.id);
+				if (!this.db.prepare('SELECT 1 FROM assets WHERE json_extract(metadata, \'$.file\')=?').get(asset.file)) {
+					this.db.prepare('INSERT OR IGNORE INTO asset_deletions VALUES (?)').run(asset.file);
+				}
+			}
+
+			this.db.exec('DELETE FROM deleted_scene_prompts');
+		});
+	}
+
+	pendingAssetDeletions() {
+		return this.db.prepare('SELECT file FROM asset_deletions ORDER BY file').all().map(row => assetSchema.shape.file.parse(row.file));
+	}
+
+	finishAssetDeletion(file: string) {
+		this.db.prepare('DELETE FROM asset_deletions WHERE file=?').run(file);
+	}
+
+	referencesFile(file: string) {
+		return Boolean(this.db.prepare('SELECT 1 FROM assets WHERE json_extract(metadata, \'$.file\')=?').get(file));
 	}
 
 	rememberScene(value: Omit<SavedScene, 'id'>) {
 		const saved = savedSceneSchema.parse({...value, id: randomUUID()});
-		const fingerprint = createHash('sha256').update(JSON.stringify([
-			saved.scene.originalPrompt.trim(), saved.scene.sleepMode, saved.generationMode,
-		])).digest('hex');
+		const fingerprint = recipeFingerprint(saved);
 		this.db.prepare('INSERT INTO saved_scenes VALUES (?, ?, ?, ?) ON CONFLICT(fingerprint) DO NOTHING')
 			.run(saved.id, fingerprint, saved.savedAt, JSON.stringify(saved));
+		return this.findScene(saved)!;
 	}
 
 	scenes(query = '', offset = 0) {

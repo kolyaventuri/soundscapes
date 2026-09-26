@@ -12,3 +12,7 @@ export const sceneLibrarySchema = z.object({
 	offset: z.number().int().nonnegative(), limit: z.literal(sceneLibraryPageSize),
 });
 export type SavedScene = z.infer<typeof savedSceneSchema>;
+
+export const sceneDeletionResultSchema = z.object({
+	id: z.uuid(), cleanup: z.enum(['complete', 'sessions-open', 'pending']),
+});

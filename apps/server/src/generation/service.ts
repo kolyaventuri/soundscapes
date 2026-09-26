@@ -65,6 +65,7 @@ export class GenerationService {
 	readonly generator: SoundGenerator;
 	private readonly config: AppConfig;
 	private profile: Promise<string> | undefined;
+	private readonly operations = new Set<Promise<Asset>>();
 	constructor(config: AppConfig, private readonly store: Store, generator?: SoundGenerator, private readonly log: (event: string, sessionId: string, detail?: string) => void = () => undefined) {
 		this.config = {...config, sound: {...config.sound, output: path.join(config.dataDirectory, 'quarantine/sound')}};
 		this.generator = generator ?? new PythonSoundGenerator(this.config.sound);
@@ -158,9 +159,24 @@ export class GenerationService {
 
 	async close() {
 		await this.queue.close();
+		await this.settled();
 	}
 
-	private async obtain(scene: Scene, description: {
+	async settled() {
+		await Promise.allSettled(this.operations);
+	}
+
+	private async obtain(...args: Parameters<GenerationService['resolveAsset']>) {
+		const operation = this.resolveAsset(...args);
+		this.operations.add(operation);
+		try {
+			return await operation;
+		} finally {
+			this.operations.delete(operation);
+		}
+	}
+
+	private async resolveAsset(scene: Scene, description: {
 		kind: SoundRequest['kind']; durationSeconds: number; title: string; prompt: string; variant?: number | undefined; layerId?: LayerPolicy['id'];
 		layerGain?: number; layerSource?: number;
 		category?: NonNullable<EventProposal['category']> | undefined;

@@ -12,6 +12,7 @@ import {
 	playlistSegments, segmentNamePattern, startRenderer, type Renderer, type RendererFactory,
 } from '../audio/hls.js';
 import {playableAssets} from '../assets/fixtures.js';
+import {cleanupDeletedAssets} from '../assets/cleanup.js';
 import {startAmbienceRenderer} from '../ambience/renderer.js';
 import {timelineSchema, type TimelineState} from '../ambience/timeline.js';
 import {Store, type Asset} from '../persistence/store.js';
@@ -68,6 +69,7 @@ type Record = {
 	volumePercent: number;
 	requestedSleepMode: boolean | undefined;
 	sceneReady: boolean;
+	savedSceneId: z.infer<typeof savedSchema>['savedSceneId'];
 	planning: PlanningState;
 	scheduledEvents: ScheduledEvent[];
 	eventAssets: Asset[];
@@ -85,6 +87,7 @@ const savedSchema = z.object({
 	generationEnabled: z.boolean().default(false), preparation: z.string().default(''),
 	volumePercent: volumePercentSchema.default(100), requestedSleepMode: z.boolean().optional(),
 	planningEnabled: z.boolean().default(false), sceneReady: z.boolean().default(true),
+	savedSceneId: z.uuid().nullable().optional(),
 	planning: planningStateSchema.default({nextOpportunityMs: null, opportunities: 0, skipped: 0}),
 	scheduledEvents: z.array(scheduledEventSchema).max(32).default([]),
 });
@@ -121,6 +124,8 @@ export class SessionManager {
 	private readonly generation: GenerationService;
 	private closing = false;
 	private sweeping = false;
+	private assetCleanup: Promise<'complete' | 'pending'> | undefined;
+	private cleanupRequested = false;
 
 	constructor({
 		config, store = new Store(), rendererFactory = startRenderer, now = () => performance.timeOrigin + performance.now(), automaticWatchdog = true,
@@ -150,6 +155,7 @@ export class SessionManager {
 			const saved = savedSchema.parse(value);
 			const session: Record = {
 				...saved, status: saved.status === 'stopped' || saved.status === 'error' ? saved.status : 'idle',
+				savedSceneId: saved.savedSceneId,
 				layered: saved.layered,
 				eventAssets: [], layerAssets: [], expansion: undefined, expansionJob: undefined,
 				controller: undefined, initialization: undefined, progress: undefined, requestedSleepMode: saved.requestedSleepMode,
@@ -160,6 +166,8 @@ export class SessionManager {
 			this.records.set(saved.id, session);
 			if (session.currentRun) {
 				this.rememberScene(session);
+			} else if (session.savedSceneId === undefined && session.status === 'stopped') {
+				session.savedSceneId = this.store.findScene(session) ?? null;
 			}
 		}
 
@@ -170,6 +178,8 @@ export class SessionManager {
 				void this.prepare(session);
 			}
 		}
+
+		await this.collectDeletedAssets();
 	}
 
 	create(mode: 'fixture' | 'ambience' = 'fixture', prompt?: string, requestedSleepMode?: boolean, generationMode: 'simple' | 'layered' = 'simple'): ListenerSession {
@@ -184,6 +194,10 @@ export class SessionManager {
 
 		if (this.closing) {
 			throw new SessionError(503, 'Server is shutting down');
+		}
+
+		if (this.assetCleanup) {
+			throw new SessionError(409, 'Finishing deleted scene cleanup. Please try again in a moment.');
 		}
 
 		for (const [id, session] of this.records) {
@@ -203,7 +217,7 @@ export class SessionManager {
 			timeline: {seed: Math.floor(Math.random() * 0x1_00_00_00_00), beds: []}, assetIds: [],
 			generationEnabled: Boolean(prompt) && this.config.sound.enabled, preparation: '', progress: undefined,
 			volumePercent: 100, requestedSleepMode,
-			planningEnabled: Boolean(prompt), sceneReady: !prompt, planning: {nextOpportunityMs: null, opportunities: 0, skipped: 0}, scheduledEvents: [],
+			planningEnabled: Boolean(prompt), sceneReady: !prompt, savedSceneId: undefined, planning: {nextOpportunityMs: null, opportunities: 0, skipped: 0}, scheduledEvents: [],
 			eventAssets: [], controller: undefined, initialization: prompt ? new AbortController() : undefined,
 			status: 'initializing', createdAt: this.now(), activeSince: undefined,
 			elapsedMs: 0, error: undefined, listeners: new Map(), renderer: undefined,
@@ -246,6 +260,28 @@ export class SessionManager {
 
 	listScenes(query: string, offset: number) {
 		return this.store.scenes(query, offset);
+	}
+
+	async deleteScene(id: string) {
+		if (!this.store.scene(id)) {
+			throw new SessionError(404, 'Saved scene not found. Refresh the library.');
+		}
+
+		// Save all current references before removing this recipe. Session work
+		// can continue; physical cleanup waits until every session is closed.
+		for (const session of this.records.values()) {
+			this.save(session);
+		}
+
+		this.store.deleteScene(id);
+		for (const session of this.records.values()) {
+			if (session.savedSceneId === id) {
+				session.savedSceneId = null;
+				this.save(session);
+			}
+		}
+
+		return {id, cleanup: await this.collectDeletedAssets()};
 	}
 
 	async setVolume(id: string, listenerId: string, percent: number) {
@@ -355,7 +391,7 @@ export class SessionManager {
 		session.initialization?.abort();
 		session.controller?.cancel();
 		session.expansion?.abort();
-		return this.enqueue(session, async () => {
+		const result = await this.enqueue(session, async () => {
 			await session.renderer?.stop();
 			for (const listener of session.listeners.values()) {
 				listener.state = 'paused';
@@ -368,6 +404,8 @@ export class SessionManager {
 			this.save(session);
 			return this.view(session);
 		});
+		await this.collectDeletedAssets();
+		return result;
 	}
 
 	async playlist(id: string, listenerId: string, consumption = true) {
@@ -542,7 +580,40 @@ export class SessionManager {
 		await Promise.all([...this.records.values()].map(async session => session.controller?.settled()));
 		await Promise.all([...this.records.values()].map(async session => session.expansionJob));
 		await this.generation.close();
+		await this.assetCleanup;
 		this.store.close();
+	}
+
+	private async collectDeletedAssets() {
+		if ([...this.records.values()].some(session => session.status !== 'stopped')) {
+			return 'sessions-open' as const;
+		}
+
+		this.cleanupRequested = true;
+		this.assetCleanup ??= (async () => {
+			let pending = 0;
+			do {
+				this.cleanupRequested = false;
+				// eslint-disable-next-line no-await-in-loop -- A concurrent deletion requests another serialized pass.
+				await Promise.all([...this.records.values()].map(async session => {
+					await session.pending;
+					await session.controller?.settled();
+					await session.expansionJob;
+				}));
+				// eslint-disable-next-line no-await-in-loop -- Drain cancelled work before retiring metadata.
+				await this.generation.settled();
+				this.store.retireOrphanedAssets();
+				// eslint-disable-next-line no-await-in-loop -- File deletion follows the metadata transaction.
+				pending = await cleanupDeletedAssets(this.store, this.config.dataDirectory);
+			} while (this.cleanupRequested);
+
+			return pending > 0 ? 'pending' as const : 'complete' as const;
+		})();
+		try {
+			return await this.assetCleanup;
+		} finally {
+			this.assetCleanup = undefined;
+		}
 	}
 
 	private async watchdog() {
@@ -558,8 +629,8 @@ export class SessionManager {
 	}
 
 	private rememberScene(session: Record) {
-		if (session.sceneReady && session.scene.originalPrompt.trim()) {
-			this.store.rememberScene({
+		if (session.savedSceneId === undefined && session.sceneReady && session.scene.originalPrompt.trim()) {
+			session.savedSceneId = this.store.rememberScene({
 				scene: session.scene, generationMode: session.generationMode,
 				layerPlan: session.layered?.plan ?? null, savedAt: new Date(session.createdAt).toISOString(),
 			});
@@ -567,13 +638,22 @@ export class SessionManager {
 	}
 
 	private save(session: Record) {
+		if (session.savedSceneId) {
+			this.store.linkSceneAssets(session.savedSceneId, [
+				...session.assetIds,
+				...session.timeline.beds.map(bed => bed.assetId),
+				...session.scheduledEvents.map(event => event.assetId),
+				...session.layered?.layers.flatMap(layer => layer.assetIds) ?? [],
+			]);
+		}
+
 		this.store.saveSession(session.id, {
 			id: session.id, mode: session.mode, status: session.status, createdAt: session.createdAt,
 			generationMode: session.generationMode, layered: session.layered,
 			elapsedMs: this.elapsed(session), error: session.error, scene: session.scene, timeline: session.timeline, assetIds: session.assetIds,
 			generationEnabled: session.generationEnabled, preparation: session.preparation,
 			volumePercent: session.volumePercent, requestedSleepMode: session.requestedSleepMode,
-			planningEnabled: session.planningEnabled, sceneReady: session.sceneReady, planning: session.planning, scheduledEvents: session.scheduledEvents,
+			planningEnabled: session.planningEnabled, sceneReady: session.sceneReady, savedSceneId: session.savedSceneId, planning: session.planning, scheduledEvents: session.scheduledEvents,
 			listeners: [...session.listeners], runs: [...session.runs.keys()].slice(-2), currentRun: session.currentRun,
 		});
 	}
