@@ -5,7 +5,7 @@ import {
 	eventCategorySchema, sceneSchema, savedSceneSchema, sceneLibraryPageSize, type SavedScene,
 } from '@soundscapes/shared';
 import {generationMetadataSchema} from '../generation/contracts.js';
-import {contextCompatible, sceneKey} from '../assets/reuse.js';
+import {sceneKey} from '../assets/reuse.js';
 
 function recipeFingerprint(value: Pick<SavedScene, 'scene' | 'generationMode'>) {
 	return createHash('sha256').update(JSON.stringify([
@@ -27,6 +27,14 @@ export const assetSchema = z.object({
 });
 export type Asset = z.infer<typeof assetSchema>;
 
+const historicalReferencesSchema = z.object({
+	scene: sceneSchema, generationMode: z.enum(['simple', 'layered']).default('simple'),
+	assetIds: z.array(z.string()).default([]),
+	timeline: z.object({beds: z.array(z.object({assetId: z.string()}))}).default({beds: []}),
+	scheduledEvents: z.array(z.object({assetId: z.string()})).default([]),
+	layered: z.object({layers: z.array(z.object({assetIds: z.array(z.string())}))}).optional(),
+});
+
 export class Store {
 	private readonly db: DatabaseSync;
 	private closed = false;
@@ -35,7 +43,7 @@ export class Store {
 		this.db = new DatabaseSync(file);
 		this.db.exec('PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;');
 		const version = this.db.prepare('PRAGMA user_version').get()!.user_version;
-		if (version !== 0 && version !== 1 && version !== 2 && version !== 3 && version !== 4) {
+		if (![0, 1, 2, 3, 4, 5].includes(Number(version))) {
 			this.db.close();
 			throw new Error(`Unsupported database version ${String(version)}`);
 		}
@@ -75,18 +83,43 @@ export class Store {
 					CREATE TABLE IF NOT EXISTS deleted_scene_prompts (key TEXT PRIMARY KEY);
 					CREATE TABLE IF NOT EXISTS asset_deletions (file TEXT PRIMARY KEY);
 					PRAGMA user_version=4;`);
-				// Legacy provenance identifies the original prompt, not its mode. Keep
-				// those recordings shared by every saved version of that prompt.
+				// Generation provenance establishes ownership by the original prompt.
 				const assets = this.assets();
 				for (const saved of this.sceneRecipes()) {
 					const key = sceneKey(saved.scene);
-					this.linkSceneAssets(saved.id, assets.filter(asset => asset.generation && (
-						asset.generation.sceneKey === key
-						// Older closed sessions did not retain cross-scene reuse links.
-						// Conservatively keep previously used, compatible event recordings.
-						|| (asset.kind === 'event' && asset.usageCount > 0 && contextCompatible(asset, saved.scene))
-					)).map(asset => asset.id));
+					this.linkSceneAssets(saved.id, assets.filter(asset => asset.generation?.sceneKey === key).map(asset => asset.id));
 				}
+			});
+		}
+
+		if (Number(version) < 5) {
+			this.transaction(() => {
+				this.db.exec(`CREATE TABLE IF NOT EXISTS asset_reuse_exclusions (
+					scene_key TEXT NOT NULL, asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+					PRIMARY KEY (scene_key, asset_id)); PRAGMA user_version=5;`);
+				// Preserve existing references: v4 did not distinguish inferred links
+				// from genuine reuse by sessions whose history has since been removed.
+				// Backfill retained usage without inferring new acoustic matches.
+				for (const value of this.loadSessions()) {
+					const parsed = historicalReferencesSchema.safeParse(value);
+					if (parsed.success) {
+						const session = parsed.data;
+						const id = this.findScene(session);
+						if (id) {
+							this.linkSceneAssets(id, [
+								...session.assetIds,
+								...session.timeline.beds.map(bed => bed.assetId),
+								...session.scheduledEvents.map(event => event.assetId),
+								...session.layered?.layers.flatMap(layer => layer.assetIds) ?? [],
+							]);
+						}
+					}
+				}
+
+				// Honor deletions queued by v4 even if an unrelated session kept the
+				// files on disk or the same prompt has since been saved again.
+				this.db.exec(`INSERT OR IGNORE INTO asset_reuse_exclusions
+					SELECT key, id FROM deleted_scene_prompts JOIN assets ON json_extract(metadata, '$.generation.sceneKey')=key`);
 			});
 		}
 	}
@@ -121,24 +154,55 @@ export class Store {
 				return;
 			}
 
-			this.db.prepare('INSERT OR IGNORE INTO deleted_scene_prompts VALUES (?)').run(sceneKey(saved.scene));
-			this.db.prepare(`INSERT OR IGNORE INTO orphan_candidates
-				SELECT asset_id FROM scene_assets JOIN assets ON assets.id=asset_id
-				WHERE scene_id=? AND json_extract(metadata, '$.generation') IS NOT NULL`).run(id);
-			this.db.prepare('DELETE FROM saved_scenes WHERE id=?').run(id);
+			const key = sceneKey(saved.scene);
+			const recipes = this.sceneRecipes().filter(recipe => sceneKey(recipe.scene) === key);
+			for (const recipe of recipes) {
+				this.db.prepare(`INSERT OR IGNORE INTO asset_reuse_exclusions
+					SELECT ?, asset_id FROM scene_assets WHERE scene_id=?`).run(key, recipe.id);
+			}
+
+			this.db.prepare(`INSERT OR IGNORE INTO asset_reuse_exclusions
+				SELECT ?, id FROM assets WHERE json_extract(metadata, '$.generation.sceneKey')=?`).run(key, key);
+			this.db.prepare(`INSERT OR IGNORE INTO orphan_candidates SELECT id FROM assets
+				JOIN asset_reuse_exclusions ON asset_id=id WHERE scene_key=? AND json_extract(metadata, '$.generation') IS NOT NULL`).run(key);
+			for (const recipe of recipes) {
+				this.db.prepare('DELETE FROM saved_scenes WHERE id=?').run(recipe.id);
+			}
+
+			for (const row of this.db.prepare('SELECT id, json_extract(state, \'$.scene.originalPrompt\') AS prompt FROM sessions').all()) {
+				if (typeof row.prompt === 'string' && sceneKey({...saved.scene, originalPrompt: row.prompt}) === key) {
+					this.deleteSession(String(row.id));
+				}
+			}
 		});
 	}
 
-	retireOrphanedAssets() {
+	isReusableAsset(id: string, key: string) {
+		return Boolean(this.db.prepare(`SELECT 1 FROM assets WHERE id=?
+			AND NOT EXISTS (SELECT 1 FROM asset_reuse_exclusions WHERE asset_id=assets.id AND scene_key=?)
+			AND (NOT EXISTS (SELECT 1 FROM orphan_candidates WHERE asset_id=assets.id)
+				OR EXISTS (SELECT 1 FROM scene_assets WHERE asset_id=assets.id))`).get(id, key));
+	}
+
+	hasPendingCleanup() {
+		return Boolean(this.db.prepare(`SELECT 1 FROM asset_deletions UNION ALL SELECT 1 FROM deleted_scene_prompts
+			UNION ALL SELECT 1 FROM orphan_candidates WHERE NOT EXISTS (SELECT 1 FROM scene_assets WHERE scene_assets.asset_id=orphan_candidates.asset_id) LIMIT 1`).get());
+	}
+
+	retireOrphanedAssets(held = new Set<string>()) {
 		this.transaction(() => {
-			// Include older cached variants and results that finished while a deleted
-			// scene's session was closing. Call only after all audio work has settled.
+			// Finish legacy v4 cleanup requests. New deletions snapshot candidates
+			// after their own sessions and generation have settled.
 			this.db.exec(`INSERT OR IGNORE INTO orphan_candidates SELECT id FROM assets
 				WHERE json_extract(metadata, '$.generation.sceneKey') IN (SELECT key FROM deleted_scene_prompts)`);
 			const assets = this.db.prepare(`SELECT metadata FROM assets JOIN orphan_candidates ON assets.id=asset_id
 				WHERE NOT EXISTS (SELECT 1 FROM scene_assets WHERE scene_assets.asset_id=assets.id)`)
 				.all().map(row => assetSchema.parse(JSON.parse(String(row.metadata))));
 			for (const asset of assets) {
+				if (held.has(asset.id)) {
+					continue;
+				}
+
 				this.db.prepare('DELETE FROM assets WHERE id=?').run(asset.id);
 				if (!this.db.prepare('SELECT 1 FROM assets WHERE json_extract(metadata, \'$.file\')=?').get(asset.file)) {
 					this.db.prepare('INSERT OR IGNORE INTO asset_deletions VALUES (?)').run(asset.file);

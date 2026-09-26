@@ -18,7 +18,7 @@ import {timelineSchema, type TimelineState} from '../ambience/timeline.js';
 import {Store, type Asset} from '../persistence/store.js';
 import {type AppConfig} from '../config.js';
 import {GenerationService} from '../generation/service.js';
-import {contextCompatible} from '../assets/reuse.js';
+import {contextCompatible, sceneKey} from '../assets/reuse.js';
 import {type SoundGenerator} from '../generation/contracts.js';
 import {OllamaPlanner} from '../planning/ollama.js';
 import {EventController, abortable, type PlanningState} from '../planning/controller.js';
@@ -124,8 +124,9 @@ export class SessionManager {
 	private readonly generation: GenerationService;
 	private closing = false;
 	private sweeping = false;
-	private assetCleanup: Promise<'complete' | 'pending'> | undefined;
+	private assetCleanup: Promise<'complete' | 'pending' | 'sessions-open'> | undefined;
 	private cleanupRequested = false;
+	private readonly deletingPrompts = new Set<string>();
 
 	constructor({
 		config, store = new Store(), rendererFactory = startRenderer, now = () => performance.timeOrigin + performance.now(), automaticWatchdog = true,
@@ -200,6 +201,8 @@ export class SessionManager {
 			throw new SessionError(409, 'Finishing deleted scene cleanup. Please try again in a moment.');
 		}
 
+		this.requireAvailablePrompt(prompt);
+
 		for (const [id, session] of this.records) {
 			if (session.status === 'stopped') {
 				this.records.delete(id);
@@ -263,25 +266,41 @@ export class SessionManager {
 	}
 
 	async deleteScene(id: string) {
-		if (!this.store.scene(id)) {
+		const saved = this.store.scene(id);
+		if (!saved) {
 			throw new SessionError(404, 'Saved scene not found. Refresh the library.');
 		}
 
-		// Save all current references before removing this recipe. Session work
-		// can continue; physical cleanup waits until every session is closed.
-		for (const session of this.records.values()) {
-			this.save(session);
+		const key = sceneKey(saved.scene);
+		if (this.deletingPrompts.has(key)) {
+			throw new SessionError(409, 'This scene is already being deleted.');
 		}
 
-		this.store.deleteScene(id);
-		for (const session of this.records.values()) {
-			if (session.savedSceneId === id) {
-				session.savedSceneId = null;
+		this.deletingPrompts.add(key);
+		const matching = [...this.records.values()].filter(session => sceneKey(session.scene) === key);
+		const closedSessionIds = matching.map(session => session.id);
+		try {
+			await Promise.all(matching.map(async session => this.stopRecord(session)));
+			await Promise.all(matching.map(async session => {
+				await session.controller?.settled();
+				await session.expansionJob;
+			}));
+			await this.generation.settled(new Set(closedSessionIds));
+			await Promise.all(matching.map(async session => session.pending));
+			for (const session of this.records.values()) {
 				this.save(session);
 			}
+
+			this.store.deleteScene(id);
+			for (const session of matching) {
+				this.records.delete(session.id);
+				this.store.deleteSession(session.id);
+			}
+		} finally {
+			this.deletingPrompts.delete(key);
 		}
 
-		return {id, cleanup: await this.collectDeletedAssets()};
+		return {id, closedSessionIds, cleanup: await this.collectDeletedAssets()};
 	}
 
 	async setVolume(id: string, listenerId: string, percent: number) {
@@ -388,22 +407,7 @@ export class SessionManager {
 
 	async stop(id: string) {
 		const session = this.record(id);
-		session.initialization?.abort();
-		session.controller?.cancel();
-		session.expansion?.abort();
-		const result = await this.enqueue(session, async () => {
-			await session.renderer?.stop();
-			for (const listener of session.listeners.values()) {
-				listener.state = 'paused';
-			}
-
-			this.transition(session, 'stopped');
-			session.currentRun = undefined;
-			session.runs.clear();
-			await rm(this.directory(id), {recursive: true, force: true});
-			this.save(session);
-			return this.view(session);
-		});
+		const result = await this.stopRecord(session);
 		await this.collectDeletedAssets();
 		return result;
 	}
@@ -548,6 +552,8 @@ export class SessionManager {
 		} finally {
 			this.sweeping = false;
 		}
+
+		await this.collectDeletedAssets();
 	}
 
 	async close() {
@@ -584,30 +590,58 @@ export class SessionManager {
 		this.store.close();
 	}
 
+	private async stopRecord(session: Record) {
+		session.initialization?.abort();
+		session.controller?.cancel();
+		session.expansion?.abort();
+		return this.enqueue(session, async () => {
+			await session.renderer?.stop();
+			for (const listener of session.listeners.values()) {
+				listener.state = 'paused';
+			}
+
+			this.transition(session, 'stopped');
+			session.currentRun = undefined;
+			session.runs.clear();
+			await rm(this.directory(session.id), {recursive: true, force: true});
+			this.save(session);
+			return this.view(session);
+		});
+	}
+
 	private async collectDeletedAssets() {
-		if ([...this.records.values()].some(session => session.status !== 'stopped')) {
-			return 'sessions-open' as const;
+		if (!this.store.hasPendingCleanup()) {
+			return 'complete' as const;
 		}
 
 		this.cleanupRequested = true;
 		this.assetCleanup ??= (async () => {
-			let pending = 0;
 			do {
 				this.cleanupRequested = false;
-				// eslint-disable-next-line no-await-in-loop -- A concurrent deletion requests another serialized pass.
-				await Promise.all([...this.records.values()].map(async session => {
-					await session.pending;
-					await session.controller?.settled();
-					await session.expansionJob;
-				}));
-				// eslint-disable-next-line no-await-in-loop -- Drain cancelled work before retiring metadata.
-				await this.generation.settled();
-				this.store.retireOrphanedAssets();
-				// eslint-disable-next-line no-await-in-loop -- File deletion follows the metadata transaction.
-				pending = await cleanupDeletedAssets(this.store, this.config.dataDirectory);
+				// In-flight consumers may still be selecting recordings. Cache eligibility
+				// is already revoked; retry physical cleanup after those operations finish.
+				if (this.deletingPrompts.size > 0 || this.generation.busy || [...this.records.values()].some(session =>
+					session.status === 'initializing' || session.controller?.busy === true || Boolean(session.expansionJob))) {
+					return 'pending' as const;
+				}
+
+				const held = new Set([...this.records.values()].filter(session => session.status !== 'stopped').flatMap(session => [
+					...session.assetIds,
+					...session.layerAssets.map(asset => asset.id),
+					...session.timeline.beds.map(bed => bed.assetId),
+					...session.scheduledEvents.map(event => event.assetId),
+					...session.layered?.layers.flatMap(layer => layer.assetIds) ?? [],
+				]));
+				// Select and retire metadata synchronously before yielding to filesystem
+				// work, so a new consumer cannot select an orphan scheduled for unlink.
+				this.store.retireOrphanedAssets(held);
+				// eslint-disable-next-line no-await-in-loop -- Serialize additional deletions arriving during file cleanup.
+				if (await cleanupDeletedAssets(this.store, this.config.dataDirectory) > 0) {
+					return 'pending' as const;
+				}
 			} while (this.cleanupRequested);
 
-			return pending > 0 ? 'pending' as const : 'complete' as const;
+			return this.store.hasPendingCleanup() ? 'sessions-open' as const : 'complete' as const;
 		})();
 		try {
 			return await this.assetCleanup;
@@ -707,6 +741,8 @@ export class SessionManager {
 	}
 
 	private requireUsable(session: Record) {
+		this.requireAvailablePrompt(session.scene.originalPrompt);
+
 		if (session.status === 'stopped') {
 			throw new SessionError(410, 'Session has stopped');
 		}
@@ -718,6 +754,12 @@ export class SessionManager {
 
 	private listenerCount(session: Record) {
 		return [...session.listeners.values()].filter(listener => listener.state === 'playing').length;
+	}
+
+	private requireAvailablePrompt(prompt = '') {
+		if (this.deletingPrompts.has(sceneKey({...fixtureScene, originalPrompt: prompt}))) {
+			throw new SessionError(409, 'This scene is being deleted. Please try again in a moment.');
+		}
 	}
 
 	private directory(id: string) {
@@ -1083,7 +1125,8 @@ export class SessionManager {
 			active: () => !this.closing && session.status === 'active',
 			assets: async () => {
 				const available = await playableAssets(this.config, this.store, 'event');
-				return available.filter(asset => session.eventAssets.some(item => item.id === asset.id));
+				return available.filter(asset => this.store.isReusableAsset(asset.id, sceneKey(session.scene))
+					&& session.eventAssets.some(item => item.id === asset.id));
 			},
 			...(session.generationEnabled
 				? {
@@ -1123,7 +1166,8 @@ export class SessionManager {
 				this.onEvent(event, session.id, detail);
 			},
 			schedule: async (event, signal, deadlinePlaybackMs) => this.enqueue(session, async () => {
-				if (signal.aborted || this.closing || session.status !== 'active' || !session.renderer?.running || !session.renderer.eventStartMs) {
+				if (signal.aborted || this.closing || session.status !== 'active' || !session.renderer?.running || !session.renderer.eventStartMs
+					|| !this.store.isReusableAsset(event.assetId, sceneKey(session.scene))) {
 					return undefined;
 				}
 

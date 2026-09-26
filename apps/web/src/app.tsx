@@ -543,6 +543,10 @@ export function App() {
 				revision={libraryRevision(sessionsRevision, connection)}
 				isUsable={!busy && showSetup}
 				onUse={useScene}
+				onDelete={(ids) => {
+					for (const closedId of ids) forgetSession(closedId);
+					setSessionsRevision((value) => value + 1);
+				}}
 			/>
 			<footer>
 				<InstallInfo />

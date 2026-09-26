@@ -14,7 +14,7 @@ export async function cleanupDeletedAssets(store: Store, directory: string) {
 
 			store.finishAssetDeletion(file);
 		} catch {
-			// Retain the entry for retry on the next deletion, last Close or restart.
+			// Retain the entry for retry on the next sweep, deletion, Close or restart.
 		}
 	}
 

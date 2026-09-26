@@ -157,7 +157,20 @@ try {
 	await manager.sweep();
 	assert.equal(beds, 4, 'Idle sessions must not dispatch new inference');
 	await manager.stop(interrupted.session.id);
-	console.log(`PASS: four validated beds; reuse and restart; generated event through HLS; failed/invalid output isolation; cancellation; minimum buffer ${minimum.toFixed(1)}s.`);
+	hang = false;
+	const saved = store.sceneRecipes().find(saved => saved.scene.originalPrompt === prompt)!;
+	const oldIds = new Set(store.assets().map(asset => asset.id));
+	const deletion = await manager.deleteScene(saved.id);
+	assert.equal(deletion.cleanup, 'complete');
+	assert.equal(store.assets().length, 0);
+	assert.equal(store.events(session.id).length, 0);
+	const fresh = manager.create('ambience', prompt);
+	await manager.playlist(fresh.session.id, fresh.listenerId);
+	assert.equal(beds, 8, 'The same simple prompt must generate four fresh beds after deletion');
+	assert.equal(store.assets().length, 4);
+	assert.ok(store.assets().every(asset => !oldIds.has(asset.id)));
+	await manager.stop(fresh.session.id);
+	console.log(`PASS: four validated beds; reuse/restart and fresh generation after deletion; generated event through HLS; invalid output isolation; cancellation; buffer ${minimum.toFixed(1)}s.`);
 } finally {
 	await app.close();
 	await rm(directory, {recursive: true, force: true});

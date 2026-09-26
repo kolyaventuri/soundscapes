@@ -620,7 +620,8 @@ it('backfills prepared pre-library sessions on upgrade without starting playback
 	await manager.close();
 	const file = path.join(config.dataDirectory, 'test.sqlite');
 	const database = new DatabaseSync(file);
-	database.exec('DROP TABLE scene_assets; DROP TABLE orphan_candidates; DROP TABLE deleted_scene_prompts; DROP TABLE asset_deletions; DROP TABLE saved_scenes; PRAGMA user_version=2;');
+	database.exec(`DROP TABLE asset_reuse_exclusions; DROP TABLE scene_assets; DROP TABLE orphan_candidates;
+		DROP TABLE deleted_scene_prompts; DROP TABLE asset_deletions; DROP TABLE saved_scenes; PRAGMA user_version=2;`);
 	database.exec('UPDATE sessions SET state=json_remove(state, \'$.savedSceneId\')');
 	database.close();
 	const restored = new SessionManager({
@@ -638,7 +639,7 @@ it('backfills prepared pre-library sessions on upgrade without starting playback
 	}
 });
 
-it('deletes a saved scene without disturbing playback, keeps it deleted after restart, and cleans its WAVs after Close', async () => {
+it('deletes the prompt and its sessions immediately while preserving unrelated playback', async () => {
 	const parseScene = vi.fn(async (originalPrompt: string) => sceneSchema.parse({
 		originalPrompt, title: 'Cafe', sleepMode: false, simulatedStart: '2000-01-01T01:00:00Z',
 	}));
@@ -646,6 +647,8 @@ it('deletes a saved scene without disturbing playback, keeps it deleted after re
 	const owner = manager.create('ambience', 'A cafe');
 	await manager.play(owner.session.id, owner.listenerId);
 	const saved = manager.listScenes('', 0).scenes[0]!;
+	const unrelated = manager.create();
+	await manager.play(unrelated.session.id, unrelated.listenerId);
 	const asset = assetSchema.parse({
 		id: randomUUID(), kind: 'ambience', title: 'Old generated bed', file: 'assets/ambience/deletion-test.wav',
 		durationMs: 90_000, sampleRate: 44_100, channels: 2, peakDb: -20, meanDb: -36, source: 'Generated',
@@ -664,19 +667,20 @@ it('deletes a saved scene without disturbing playback, keeps it deleted after re
 		const response = await app.inject({method: 'DELETE', url: `/api/scenes/${saved.id}`});
 		expect(response.statusCode).toBe(200);
 		expect(response.headers['cache-control']).toBe('no-store');
-		expect(sceneDeletionResultSchema.parse(response.json())).toEqual({id: saved.id, cleanup: 'sessions-open'});
-		expect(manager.get(owner.session.id)).toMatchObject({status: 'active', rendering: true, listenerCount: 1});
+		expect(sceneDeletionResultSchema.parse(response.json())).toEqual({id: saved.id, closedSessionIds: [owner.session.id], cleanup: 'complete'});
+		expect(() => manager.get(owner.session.id)).toThrow('Session not found');
+		expect(manager.get(unrelated.session.id)).toMatchObject({status: 'active', rendering: true, listenerCount: 1});
 		expect(factory).toHaveBeenCalledTimes(producerCount);
 		expect(manager.listScenes('', 0).total).toBe(0);
-		expect(await readFile(path.join(config.dataDirectory, asset.file), 'utf8')).toBe('keep while open');
+		await expect(readFile(path.join(config.dataDirectory, asset.file))).rejects.toMatchObject({code: 'ENOENT'});
 		const missing = await app.inject({method: 'DELETE', url: `/api/scenes/${saved.id}`});
 		const invalid = await app.inject({method: 'DELETE', url: '/api/scenes/not-an-id'});
 		expect(missing.statusCode).toBe(404);
 		expect(invalid.statusCode).toBe(400);
 		advance(1001);
 		await manager.sweep();
-		expect(manager.get(owner.session.id)).toMatchObject({status: 'idle', rendering: false, listenerCount: 0});
-		await manager.play(owner.session.id, owner.listenerId);
+		expect(manager.get(unrelated.session.id)).toMatchObject({status: 'idle', rendering: false, listenerCount: 0});
+		expect(JSON.stringify(store.loadSessions())).not.toContain('A cafe');
 		expect(manager.listScenes('', 0).total).toBe(0);
 	} finally {
 		await app.close();
@@ -688,9 +692,10 @@ it('deletes a saved scene without disturbing playback, keeps it deleted after re
 	try {
 		await restored.initialize();
 		expect(restored.listScenes('', 0).total).toBe(0);
-		expect(restored.get(owner.session.id)).toMatchObject({status: 'idle', ready: true});
-		expect(await readFile(path.join(config.dataDirectory, asset.file), 'utf8')).toBe('keep while open');
-		await restored.stop(owner.session.id);
+		expect(() => restored.get(owner.session.id)).toThrow('Session not found');
+		expect(restored.get(unrelated.session.id)).toMatchObject({status: 'idle', ready: true});
+		await expect(readFile(path.join(config.dataDirectory, asset.file))).rejects.toMatchObject({code: 'ENOENT'});
+		await restored.stop(unrelated.session.id);
 		await expect(readFile(path.join(config.dataDirectory, asset.file))).rejects.toMatchObject({code: 'ENOENT'});
 		expect(restored.listScenes('', 0).total).toBe(0);
 	} finally {
@@ -713,12 +718,12 @@ it('serializes orphan cleanup against new preparation and waits for cancelled ge
 	const wait = vi.spyOn(GenerationService.prototype, 'settled').mockImplementationOnce(async () => pending);
 	try {
 		const deletion = manager.deleteScene(id);
-		expect(() => manager.create()).toThrow('Finishing deleted scene cleanup');
+		expect(() => manager.create('ambience', 'Rain')).toThrow('This scene is being deleted');
 		await vi.waitFor(() => {
 			expect(wait).toHaveBeenCalled();
 		});
 		finish();
-		expect(await deletion).toEqual({id, cleanup: 'complete'});
+		expect(await deletion).toEqual({id, closedSessionIds: [], cleanup: 'complete'});
 		expect(manager.create().session.status).toBe('initializing');
 	} finally {
 		finish();

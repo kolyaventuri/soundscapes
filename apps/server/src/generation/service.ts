@@ -65,11 +65,15 @@ export class GenerationService {
 	readonly generator: SoundGenerator;
 	private readonly config: AppConfig;
 	private profile: Promise<string> | undefined;
-	private readonly operations = new Set<Promise<Asset>>();
+	private readonly operations = new Map<Promise<Asset>, string>();
 	constructor(config: AppConfig, private readonly store: Store, generator?: SoundGenerator, private readonly log: (event: string, sessionId: string, detail?: string) => void = () => undefined) {
 		this.config = {...config, sound: {...config.sound, output: path.join(config.dataDirectory, 'quarantine/sound')}};
 		this.generator = generator ?? new PythonSoundGenerator(this.config.sound);
 		this.queue = new GenerationQueue(this.generator);
+	}
+
+	get busy() {
+		return this.operations.size > 0;
 	}
 
 	async initialize() {
@@ -87,7 +91,8 @@ export class GenerationService {
 		}));
 		const profile = await this.getProfile();
 		const available = await playableAssets(this.config, this.store);
-		const cached = descriptions.map(description => available.find(asset => asset.generation?.assetKey === generationAssetKey(scene, profile, description)));
+		const cached = descriptions.map(description => available.find(asset => asset.generation?.assetKey === generationAssetKey(scene, profile, description)
+			&& this.store.isReusableAsset(asset.id, sceneKey(scene))));
 		const timingProfile = `sound:${hash(profile)}:90`;
 		let first = true;
 		preparation?.plan(descriptions.flatMap((description, index) => {
@@ -100,9 +105,10 @@ export class GenerationService {
 			return [{id: `generate-${index}`, profile: `${timingProfile}:${temperature}`}, {id: `validate-${index}`, profile: `${timingProfile}:validate`}];
 		}));
 		for (const [variant, description] of descriptions.entries()) {
-			// A scene needs four independently seeded beds; sequential work preserves memory headroom.
-			// eslint-disable-next-line no-await-in-loop
-			const asset = cached[variant] ?? await this.obtain(scene, description, owner, preparation ? {preparation, timingProfile, variant} : undefined);
+			const cachedAsset = cached[variant];
+			const reusable = cachedAsset && this.store.isReusableAsset(cachedAsset.id, sceneKey(scene)) ? cachedAsset : undefined;
+			// eslint-disable-next-line no-await-in-loop -- Sequential generation preserves memory headroom.
+			const asset = reusable ?? await this.obtain(scene, description, owner, preparation ? {preparation, timingProfile, variant} : undefined);
 			owner.signal.throwIfAborted();
 			if (!owner.valid()) {
 				throw new Error('Sound request owner is idle');
@@ -111,7 +117,7 @@ export class GenerationService {
 			assets.push(asset);
 			if (preparation) {
 				preparation.completedBeds = assets.length;
-				preparation.reusedBeds += Number(Boolean(cached[variant]));
+				preparation.reusedBeds += Number(Boolean(reusable));
 			}
 
 			progress([...assets]);
@@ -162,13 +168,13 @@ export class GenerationService {
 		await this.settled();
 	}
 
-	async settled() {
-		await Promise.allSettled(this.operations);
+	async settled(sessionIds?: Set<string>) {
+		await Promise.allSettled([...this.operations].filter(([, id]) => !sessionIds || sessionIds.has(id)).map(async ([operation]) => operation));
 	}
 
 	private async obtain(...args: Parameters<GenerationService['resolveAsset']>) {
 		const operation = this.resolveAsset(...args);
-		this.operations.add(operation);
+		this.operations.set(operation, args[2].sessionId);
 		try {
 			return await operation;
 		} finally {
@@ -189,7 +195,7 @@ export class GenerationService {
 		}
 
 		const available = await playableAssets(this.config, this.store, description.kind);
-		const existing = available.find(asset => asset.generation?.assetKey === assetKey);
+		const existing = available.find(asset => asset.generation?.assetKey === assetKey && this.store.isReusableAsset(asset.id, key));
 		if (existing) {
 			if (tracking) {
 				tracking.preparation.skip(`generate-${tracking.variant}`);

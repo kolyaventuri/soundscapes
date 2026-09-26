@@ -15,4 +15,5 @@ export type SavedScene = z.infer<typeof savedSceneSchema>;
 
 export const sceneDeletionResultSchema = z.object({
 	id: z.uuid(), cleanup: z.enum(['complete', 'sessions-open', 'pending']),
+	closedSessionIds: z.array(z.uuid()).default([]),
 });

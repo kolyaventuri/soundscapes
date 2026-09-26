@@ -11,10 +11,12 @@ export function SceneLibrary({
 	revision,
 	isUsable,
 	onUse,
+	onDelete,
 }: {
 	readonly revision: string;
 	readonly isUsable: boolean;
 	readonly onUse: (scene: SavedScene) => void;
+	readonly onDelete: (closedSessionIds: string[]) => void;
 }) {
 	const [listing, setListing] =
 		useState<ReturnType<typeof sceneLibrarySchema.parse>>();
@@ -31,7 +33,7 @@ export function SceneLibrary({
 		if (
 			// eslint-disable-next-line no-alert -- Native confirmation is intentional for permanent scene deletion.
 			!globalThis.confirm(
-				`Delete “${saved.scene.title}”? This can’t be undone.`,
+				`Delete “${saved.scene.title}” and close its sessions? This can’t be undone.`,
 			)
 		) {
 			return;
@@ -46,12 +48,13 @@ export function SceneLibrary({
 				sceneDeletionResultSchema,
 				{method: 'DELETE'},
 			);
+			onDelete(result.closedSessionIds);
 			setNotice(
 				result.cleanup === 'sessions-open'
-					? 'Scene deleted. Unused recordings will be cleaned up when open sessions close. Shared recordings are kept.'
+					? 'Scene deleted. Its cache is cleared; recordings still needed by another session are kept until it closes.'
 					: result.cleanup === 'pending'
-						? 'Scene deleted. Some unused files could not be removed yet; cleanup will retry on server restart.'
-						: 'Scene deleted. Unused recordings removed; shared recordings kept.',
+						? 'Scene deleted and cache cleared. File cleanup is pending and will retry automatically.'
+						: 'Scene deleted and cache cleared. Preparing this prompt again will generate fresh audio.',
 			);
 			if (listing?.scenes.length === 1 && offset > 0) {
 				setOffset(Math.max(0, offset - listing.limit));

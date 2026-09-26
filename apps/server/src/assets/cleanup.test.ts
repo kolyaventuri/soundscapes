@@ -66,6 +66,8 @@ it('keeps shared recordings until the last scene is deleted, including reuse fro
 	store.linkSceneAssets(firstId, [shared.id, exclusive.id, imported.id]);
 	store.linkSceneAssets(secondId, [shared.id]);
 	store.deleteScene(firstId);
+	expect(store.isReusableAsset(shared.id, sceneKey(first.scene))).toBe(false);
+	expect(store.isReusableAsset(shared.id, sceneKey(second.scene))).toBe(true);
 	store.retireOrphanedAssets();
 	expect(await cleanupDeletedAssets(store, directory)).toBe(0);
 	expect(await readFile(path.join(directory, shared.file), 'utf8')).toBe(shared.id);
@@ -88,10 +90,10 @@ it('recovers file cleanup after restart and tolerates already missing WAVs', asy
 	store.putAsset(existing);
 	store.putAsset(missing);
 	await writeFile(path.join(directory, existing.file), 'audio');
-	store.deleteScene(id);
-	// A cancelled worker may publish its final result while sessions close.
+	// Deletion drains cancelled generation before invalidating its final output.
 	const late = generated(saved.scene);
 	store.putAsset(late);
+	store.deleteScene(id);
 	store.retireOrphanedAssets();
 	expect(store.pendingAssetDeletions()).toHaveLength(3);
 	store.close();
@@ -137,12 +139,14 @@ it('preserves a WAV still referenced by another asset and retries unsafe directo
 	expect(await cleanupDeletedAssets(store, directory)).toBe(0);
 });
 
-it('migrates legacy provenance conservatively across saved modes and previously reused events', async () => {
+it('honors pending v4 deletions, preserves recorded sharing and clears all versions of a prompt', async () => {
 	const {store, database} = await setup();
 	const saved = recipe('A Cafe');
 	const simple = store.rememberScene(saved);
-	const layered = store.rememberScene({...saved, generationMode: 'layered'});
-	const other = store.rememberScene(recipe('Another cafe'));
+	store.rememberScene({...saved, generationMode: 'layered'});
+	const otherRecipe = recipe('Another cafe');
+	const other = store.rememberScene(otherRecipe);
+	const unused = store.rememberScene(recipe('A compatible but unused cafe'));
 	const bed = generated(saved.scene);
 	const event = assetSchema.parse({
 		...generated(saved.scene), kind: 'event', usageCount: 1, affinity: saved.scene,
@@ -150,22 +154,78 @@ it('migrates legacy provenance conservatively across saved modes and previously 
 	});
 	store.putAsset(bed);
 	store.putAsset(event);
+	store.linkSceneAssets(simple, [bed.id, event.id]);
+	// This genuine cross-prompt reference must survive even without a retained session.
+	store.linkSceneAssets(other, [event.id]);
 	store.close();
 	const legacy = new DatabaseSync(database);
-	legacy.exec('DROP TABLE scene_assets; DROP TABLE orphan_candidates; DROP TABLE deleted_scene_prompts; DROP TABLE asset_deletions; PRAGMA user_version=3;');
+	legacy.exec('DROP TABLE asset_reuse_exclusions; PRAGMA user_version=4;');
+	legacy.prepare('INSERT INTO deleted_scene_prompts VALUES (?)').run(sceneKey(saved.scene));
 	legacy.close();
 	const restored = new Store(database);
 	try {
+		expect(restored.isReusableAsset(bed.id, sceneKey(saved.scene))).toBe(false);
 		restored.deleteScene(simple);
 		restored.retireOrphanedAssets();
-		expect(restored.assets()).toHaveLength(2);
-		restored.deleteScene(layered);
-		restored.retireOrphanedAssets();
+		expect(restored.scenes().total).toBe(2);
 		expect(restored.assets().map(asset => asset.id)).toEqual([event.id]);
+		expect(restored.isReusableAsset(event.id, sceneKey(otherRecipe.scene))).toBe(true);
 		restored.deleteScene(other);
 		restored.retireOrphanedAssets();
 		expect(restored.assets()).toEqual([]);
+		expect(restored.scene(unused)).toBeDefined();
 	} finally {
 		restored.close();
 	}
+});
+
+it('backfills older libraries from retained usage without inferring sharing from acoustic similarity', async () => {
+	const {store, database} = await setup();
+	const saved = recipe('A cafe');
+	const original = store.rememberScene(saved);
+	const used = recipe('Another cafe');
+	const usedId = store.rememberScene(used);
+	const unused = store.rememberScene(recipe('A compatible but unused cafe'));
+	const event = assetSchema.parse({
+		...generated(saved.scene), kind: 'event', usageCount: 1, affinity: saved.scene,
+		event: {category: 'water', tags: ['water'], reviewedSleepSafe: false},
+	});
+	store.putAsset(event);
+	store.saveSession('legacy', {...used, scheduledEvents: [{assetId: event.id}]});
+	store.close();
+	const legacy = new DatabaseSync(database);
+	legacy.exec(`DROP TABLE asset_reuse_exclusions; DROP TABLE scene_assets; DROP TABLE orphan_candidates;
+		DROP TABLE deleted_scene_prompts; DROP TABLE asset_deletions; PRAGMA user_version=3;`);
+	legacy.close();
+	const restored = new Store(database);
+	try {
+		restored.deleteScene(original);
+		restored.retireOrphanedAssets();
+		expect(restored.assets().map(asset => asset.id)).toEqual([event.id]);
+		restored.deleteScene(usedId);
+		restored.retireOrphanedAssets();
+		expect(restored.assets()).toEqual([]);
+		expect(restored.scene(unused)).toBeDefined();
+	} finally {
+		restored.close();
+	}
+});
+
+it('revokes cache reuse immediately while an orphan is held for playback, then removes it after release', async () => {
+	const {store, directory} = await setup();
+	const saved = recipe('Rain');
+	const id = store.rememberScene(saved);
+	const asset = generated(saved.scene);
+	store.putAsset(asset);
+	await writeFile(path.join(directory, asset.file), 'audio');
+	store.deleteScene(id);
+	store.retireOrphanedAssets(new Set([asset.id]));
+	expect(store.hasPendingCleanup()).toBe(true);
+	expect(store.isReusableAsset(asset.id, sceneKey(saved.scene))).toBe(false);
+	expect(store.isReusableAsset(asset.id, sceneKey(recipe('Other').scene))).toBe(false);
+	expect(await readFile(path.join(directory, asset.file), 'utf8')).toBe('audio');
+	store.retireOrphanedAssets();
+	expect(await cleanupDeletedAssets(store, directory)).toBe(0);
+	expect(store.hasPendingCleanup()).toBe(false);
+	await expect(readFile(path.join(directory, asset.file))).rejects.toMatchObject({code: 'ENOENT'});
 });

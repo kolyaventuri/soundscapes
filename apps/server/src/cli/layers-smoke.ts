@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
 import {
-	mkdir, mkdtemp, readFile, rm,
+	copyFile, mkdir, mkdtemp, readFile, rm, stat,
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
@@ -19,6 +19,7 @@ import {type SoundGenerator} from '../generation/contracts.js';
 import {type Planner} from '../planning/contracts.js';
 import {layerClips} from '../layers/timeline.js';
 import {testPlan} from '../layers/fixtures.js';
+import {sceneKey} from '../assets/reuse.js';
 import {writeJson} from '../monitoring/storage.js';
 import {assertBeachPlan, beachPrompt} from './layer-regression.js';
 
@@ -30,6 +31,7 @@ await mkdir(parent, {recursive: true});
 const directory = await mkdtemp(path.join(parent, 'layers-'));
 const config = {
 	...defaults, tls: undefined, dataDirectory: directory, idleTimeoutMs: 30_000,
+	fixturePath: path.join(directory, 'fixture.wav'),
 };
 let generated = 0;
 let planned = 0;
@@ -259,6 +261,53 @@ try {
 		assert.equal(manager!.get(repeated.session.id).layers.find(layer => layer.id === 'activity')?.state, 'unavailable');
 		await decode(repeated.streamUrl, 2);
 		await manager!.stop(repeated.session.id);
+
+		// Reproduce delete -> identical prompt with an unrelated idle session and
+		// one genuinely shared WAV still on disk. The generation adapter must run
+		// ten times again; only the newly generated pool may subsequently be reused.
+		const saved = store!.sceneRecipes().find(saved => saved.scene.originalPrompt === prompt)!;
+		const oldAssets = store!.assets();
+		const shared = oldAssets.find(asset => asset.generation?.layerId === 'ambience')!;
+		const otherScene = {...saved.scene, originalPrompt: 'A different room that uses a shared recording'};
+		const otherRecipe = store!.rememberScene({...saved, scene: otherScene});
+		store!.linkSceneAssets(otherRecipe, [shared.id]);
+		store!.rememberScene({...saved, generationMode: 'simple'});
+		await mkdir(path.dirname(config.fixturePath), {recursive: true});
+		await copyFile(path.join(directory, shared.file), config.fixturePath);
+		const unrelated = manager!.create();
+		await manager!.playlist(unrelated.session.id, unrelated.listenerId);
+		const deleted = await app!.inject({method: 'DELETE', url: `/api/scenes/${saved.id}`});
+		assert.equal(deleted.statusCode, 200);
+		assert.equal((deleted.json()).cleanup, 'complete');
+		assert.equal(manager!.get(unrelated.session.id).status, 'idle');
+		assert.ok(store!.sceneRecipes().every(recipe => sceneKey(recipe.scene) !== sceneKey(saved.scene)));
+		assert.equal(store!.isReusableAsset(shared.id, sceneKey(saved.scene)), false);
+		assert.equal(store!.isReusableAsset(shared.id, sceneKey(otherScene)), true);
+		for (const asset of oldAssets.filter(asset => asset.id !== shared.id)) {
+			await assert.rejects(stat(path.join(directory, asset.file)), {code: 'ENOENT'});
+		}
+
+		await stat(path.join(directory, shared.file));
+		await app!.close();
+		await start();
+		const generationCount = generated;
+		const fresh = manager!.create('ambience', prompt, false, 'layered');
+		await manager!.playlist(fresh.session.id, fresh.listenerId);
+		const freshIds = manager!.debug(fresh.session.id).layeredTimeline!.layers.flatMap(layer => layer.assetIds);
+		assert.equal(generated - generationCount, 10, 'Identical prompt after deletion must generate all ten initial WAVs');
+		assert.equal(freshIds.length, 10);
+		assert.ok(freshIds.every(id => oldAssets.every(asset => asset.id !== id)));
+		const cachedAgain = manager!.create('ambience', prompt, false, 'layered');
+		await manager!.playlist(cachedAgain.session.id, cachedAgain.listenerId);
+		assert.equal(generated - generationCount, 10, 'Fresh pool can be cached until the next deletion');
+		assert.deepEqual(manager!.debug(cachedAgain.session.id).layeredTimeline!.layers.flatMap(layer => layer.assetIds), freshIds);
+		await manager!.stop(fresh.session.id);
+		await manager!.stop(cachedAgain.session.id);
+		await manager!.stop(unrelated.session.id);
+		report.deletion = {
+			freshRecordings: freshIds.length, sharedWavPreserved: true, unrelatedSessionPreserved: true, restartVerified: true,
+		};
+		console.log('PASS: delete and identical-prompt regeneration produces ten new WAVs across restart; shared WAV retained and unrelated idle session preserved.');
 		failOptional = true;
 		const degraded = manager!.create('ambience', `${prompt} Different scene.`, false, 'layered');
 		await manager!.play(degraded.session.id, degraded.listenerId);
