@@ -2,6 +2,16 @@
 
 Phase 6 separates automated behavior, real local inference, and physical listening. Passing the first two does not complete v0.1. The measured eight-hour laptop soak passed on 2026-09-24, followed by eight-hour locked-iPhone speaker endurance on 2026-09-25. The physical-device endurance gate is satisfied; remaining listening checks are in [PLAN.md](PLAN.md). Existing Bluetooth playback/control checks passed, and further Bluetooth testing is optional and issue-driven. Advanced layering is an optional prototype with separate fidelity acceptance.
 
+## Jazz chatter source investigation
+
+The user approved the isolated cup-effect audition and identified mouth-like popping primarily in three saved chatter WAVs, with lesser artifacts in four generated room-air WAVs. This localizes the reported sound to source assets before live mixing or AAC encoding; it does not establish whether generation or asset normalization contributes most to the perception.
+
+The inspected chatter caption requested soft customer conversation and blended low voices without specifying microphone distance. All seven source files were examined for single-sample jumps at the pinned Medium MLX decoder's chunk joins. Those joins were below each file's 99th-percentile sample difference, providing no evidence of isolated discontinuities at the joins. This numeric check cannot exclude broader timbre or decoder artifacts.
+
+A controlled offline comparison regenerated the worst reported chatter source using its saved prompt, seed, 75-second duration, pinned Medium weights and eight-step sampler. After the existing normalization, it matched the saved PCM to within one 16-bit quantization step. The raw baseline contains the large transients before normalization. A second generation changed only the caption to conversations across the room with a consistent microphone distance. Its raw peak-to-RMS ratio decreased by roughly 8 dB, but this is not a perceptual quality verdict. Both complete files and their first 20-second excerpts were prepared with the same normalization and a uniform playback gain to -25 dBFS RMS over each full recording.
+
+Listening comparison is pending. Production prompts, source assets and session playback were preserved; no general de-clicking, voice filtering, or level-based asset rejection was introduced. Raw comparisons, exact provenance and analysis remain under ignored `data/fidelity-review/jazz-chatter/`.
+
 ## Repeatable checks
 
 Run from the repository root with the shell-selected Node 24 and installed FFmpeg/ffprobe:
