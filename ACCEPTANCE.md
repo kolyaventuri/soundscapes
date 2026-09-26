@@ -1,6 +1,6 @@
 # v0.1 verification record
 
-This record summarizes completed checks and their limits. [PLAN.md](PLAN.md#remaining-v01-checks) is the sole current release checklist: R1–R4 plus the handoff decision. Earlier investigations are preserved in Git history and raw local artifacts under ignored `data/`; historical “pending” statements are superseded by the current status here.
+This record summarizes completed checks and their limits. [PLAN.md](PLAN.md#remaining-v01-checks) is the sole current release checklist: R1 and R3 remain open, R2 and R4 are accepted, and the handoff decision follows. Earlier investigations are preserved in Git history and raw local artifacts under ignored `data/`; historical “pending” statements are superseded by the current status here.
 
 The reconciliation introduced no runtime changes, new listening claims or new overnight requirements. Automated, real-model, browser and physical-listening evidence remain distinct.
 
@@ -12,10 +12,10 @@ The reconciliation introduced no runtime changes, new listening claims or new ov
 | Physical transport | User-confirmed iPhone loading/streaming, lock-screen metadata, locked playback, Bluetooth sleep buds, pause/resume and manual same-session recovery after network loss. |
 | Measured endurance | Eight-hour laptop/browser and eight-hour locked-iPhone speaker runs both completed 961/961 complete active samples with no recorded issues. Endurance is accepted. |
 | Local inference during playback | Real scene/event generation and layer-pool expansion pass with ongoing HLS; the phone endurance record also contains brief successful generation for another session. Continuous maximum model load is not claimed or required for v0.1. |
-| Preparation and PWA | User accepts live preparation feedback, installed PWA playback and the five-minute diagnostic preflight, including deliberate pauses. Warning-free Safari entry remains R4. |
+| Preparation and PWA | User accepts live preparation feedback, installed PWA playback and the five-minute diagnostic preflight, including deliberate pauses. The user accepts HTTPS access after successful use on two other devices; revisit the earlier quirk only if it recurs. |
 | Audible scene quality | Five-scene review completed. Later feedback accepts the creek repair, beach balance, improved chatter without constant pops and the isolated cup sound. Rain's general scene match/transitions were accepted; its thunder exclusion remains R3. |
 | Simple event behavior | Real and controlled tests cover scheduling, null decisions, generation, reuse and failures. Explicit ordinary-cadence listening acceptance remains R1. |
-| Scene level control | Numeric limiting, file/PCM input paths, persistence, idle behavior and browser adjustment pass. Direct iPhone slider behavior remains R2; accepted beach balance is not being reopened. |
+| Scene level control | Numeric limiting, file/PCM input paths, persistence, idle behavior and browser adjustment pass. The user confirms using the Scene level control successfully on iPhone; R2 is accepted. |
 | Startup regression | Native-HLS preparation/Play ordering repaired; Zen/Firefox first-Play freeze reproduced and browser-retested successfully. Further investigation is issue-driven. |
 | Library/deletion | Search/details/reuse and persistent recipes implemented; deletion now invalidates old audio reuse and removes orphans. Restart and identical-prompt regressions pass. |
 | Advanced layering | Automatically planned independent layers are usable, with accepted examples and real generation/streaming evidence. Remaining music, source-isolation and broader music/activity coverage are optional prototype work. |
@@ -92,7 +92,7 @@ A fresh temporary source copy without environment/data/models/dependencies insta
 
 The documented dependency lock targets Apple Silicon macOS. Other backends exist, but this is not a claim of tested installation on every platform. Use the shell-selected Node.js 24 LTS runtime and documented local model setup. Models run locally after installation; runtime workers must not receive setup tokens.
 
-The app is unauthenticated and intended for a trusted LAN, not public exposure. A reachable certified LAN IP or hostname is sufficient. Certificates do not provide name resolution. Local TLS/name rejection and recorder trust were tested; direct warning-free Safari access remains R4 despite accepted CA-trust/PWA reports. See [README.md](README.md#installable-app-and-trusted-lan-https).
+The app is unauthenticated and intended for a trusted LAN, not public exposure. A reachable certified LAN IP or hostname is sufficient. Certificates do not provide name resolution. Local TLS/name rejection and recorder trust were tested; the user subsequently confirmed HTTPS access on two other devices and explicitly closed R4. The earlier device-specific warning/hang has no established cause; further investigation is issue-driven. See [README.md](README.md#installable-app-and-trusted-lan-https).
 
 Known limitations include approximate hardware-dependent preparation times, occasional model timeouts, imperfect source isolation/negative-prompt compliance, unsupported guarantees for intelligible speech/lyrics and musical continuity, buffered stream-level changes, manual resume after a network interruption, and an offline app shell without offline audio.
 

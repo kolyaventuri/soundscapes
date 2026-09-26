@@ -4,7 +4,7 @@
 
 ## Current position
 
-Phases 0–5 are implemented. Phase 6 engineering, setup verification, diagnostics and endurance are complete. The user accepts the creek repair, beach volume balance, improved chatter without constant pops, cup recording and preparation feedback. Remaining release work is the four focused checks below and the final handoff decision. There is no outstanding broad scene-fidelity sweep or overnight run.
+Phases 0–5 are implemented. Phase 6 engineering, setup verification, diagnostics and endurance are complete. The user accepts the creek repair, beach volume balance, improved chatter without constant pops, cup recording and preparation feedback. Remaining release work is the two focused checks (R1 and R3) below and the final handoff decision. There is no outstanding broad scene-fidelity sweep or overnight run.
 
 The app remains pre-v0.1 until those checks are resolved. Advanced layering is an optional prototype; its remaining fidelity and feature work does not block v0.1.
 
@@ -13,12 +13,12 @@ The app remains pre-v0.1 until those checks are resolved. Advanced layering is a
 These are the only active release checks. Existing observations can close them; do not repeat a test just because it appeared in an older phase checklist.
 
 - [ ] **R1 — Simple-mode event listening.** Confirm that occasional events during ordinary, default-cadence playback fit the scene, have appropriate prominence and do not sound mechanically repetitive. Real planning/generation, null decisions, reuse, timing and failure isolation already pass. Representative scene quality and crossfades have been heard; the evidence gap is explicit acceptance of the simple event planner's audible cadence. Null/skipped opportunities are expected. This is normal-use listening, not another soak or forced inference run.
-- [ ] **R2 — iPhone Scene level control.** Confirm that moving the app's Scene level control changes the audible level as expected after buffered audio clears and remains comfortable. The control, persistence, limiting and idle behavior pass automated/desktop checks; beach mix balance is accepted. Physical lock-screen, pause/resume and Bluetooth checks need no repetition. Speaker output is sufficient for this control check.
+- [x] **R2 — iPhone Scene level control.** User confirms the control works and has been using it during normal listening. Physical control acceptance is complete.
 - [ ] **R3 — Rain exclusion follow-up.** On fresh rain output, check the previously violated “no thunder” request. The user already accepted its general scene match and transitions. Text exclusion handling passes, but forwarding the constraint did not prevent generated thunder in the earlier recording. Record the audible result; if it still fails, retain a concrete generation-fidelity issue and document the limitation rather than claiming acoustic compliance. Stronger window patter is optional polish.
-- [ ] **R4 — Supported iPhone HTTPS entry point.** Confirm that the chosen certified LAN address opens in Safari without a certificate warning. CA trust, PWA installation and locked-screen playback were user-reported, but warning-free Safari access was not explicitly confirmed. A certified LAN IP is sufficient; universal Bonjour discovery is not a release requirement. Keep portable setup instructions aligned with the verified route.
-- [ ] **Release handoff.** Resolve R1–R4, record the release revision and supported setup/known limitations, then mark v0.1 complete. Do not turn optional work or missing early-run metadata into additional release gates.
+- [x] **R4 — Supported HTTPS entry point.** User confirms HTTPS opens on two other devices and explicitly accepts this check as complete. The earlier device-specific quirk is closed; revisit only if it recurs. This does not claim a diagnosed cause or universal Bonjour support.
+- [ ] **Release handoff.** Resolve the remaining R1 and R3 checks, record the release revision and supported setup/known limitations, then mark v0.1 complete. Do not turn optional work or missing early-run metadata into additional release gates.
 
-R2 and R4 can be covered in one brief iPhone UI visit. R1 and R3 are focused listening observations, not a repeat of the five-scene review. If already covered in normal use, record that evidence instead of asking for another run.
+R2 and R4 are accepted through user reports. R1 and R3 are focused listening observations, not a repeat of the five-scene review. If already covered in normal use, record that evidence instead of asking for another run.
 
 ## Accepted behavior and listening
 
@@ -75,8 +75,8 @@ R2 and R4 can be covered in one brief iPhone UI visit. R1 and R3 are focused lis
 ### Phase 5 — Playback UX and reuse
 
 - [x] Context/tag reuse scoring, history/usage weighting, bounded mix variation and passive library/debug access.
-- [x] Prompt/sleep-mode creation, live preparation stages, measured readiness, scene details/clock and stream-level control. R2 covers the unrecorded physical control check.
-- [x] Install icons/manifest and static-only PWA caching; API/HLS/audio excluded. LAN HTTPS setup documented; R4 covers warning-free physical access.
+- [x] Prompt/sleep-mode creation, live preparation stages, measured readiness, scene details/clock and stream-level control. Physical control acceptance is recorded in R2.
+- [x] Install icons/manifest and static-only PWA caching; API/HLS/audio excluded. LAN HTTPS setup documented; User acceptance of HTTPS access is recorded in R4.
 - [x] Saved-scene search/pagination/previews and independent recipes; all non-stopped sessions visible with Close and Close all.
 - [x] Confirmed deletion clears matching prompt variants/sessions, invalidates old cache hits, removes orphaned generated WAVs and preserves shared/imported recordings. SQLite v5 persists exclusions/cleanup retries; an identical prompt generates fresh recordings after deletion and restart.
 
@@ -118,7 +118,7 @@ This prototype is usable but its completion is not a v0.1 release gate.
 | Recover every early iOS/browser/sleep-bud detail | Missing metadata stays documented; it does not invalidate accepted behavior or require reenactment. |
 | Repeat five scenes, creek diagnosis, beach balance, chatter investigation | Review completed and reported repairs accepted; only specific unresolved checks above remain. |
 | Mandatory Small-SFX versus Medium comparison | Model-selection exploration, not a remaining release requirement. |
-| Fixed Bonjour name or privileged reverse proxy | A reachable certified LAN address suffices. Warning-free access is R4; universal discovery is not promised. |
+| Fixed Bonjour name or privileged reverse proxy | A reachable certified LAN address suffices. HTTPS access is accepted in R4; universal discovery is not promised. |
 | Eight hours of continuous model inference | Not a v0.1 gate. Real short inference/stream overlap and brief concurrent generation during phone endurance already have evidence. |
 | Duplicate phase listening/level/HTTPS boxes | Consolidated into R1–R4; close each once rather than reopening it from historical notes. |
 
