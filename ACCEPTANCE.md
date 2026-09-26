@@ -1,5 +1,10 @@
 # v0.1 verification record
 
+## Beach volume balance — follow-up listening
+
+The user considers the balance checks complete and reports that recent beach-scene runs have substantially better volume balance. Beach surf/scene volume balance is accepted; the earlier excessive-surf observations below are historical and do not require another balance pass. This report does not resolve the separate creek phasing, source-timing or music-variety items.
+
+
 Phase 6 separates automated behavior, real local inference, and physical listening. Passing the first two does not complete v0.1. The measured eight-hour laptop soak passed on 2026-09-24, followed by eight-hour locked-iPhone speaker endurance on 2026-09-25. The physical-device endurance gate is satisfied; remaining listening checks are in [PLAN.md](PLAN.md). Existing Bluetooth playback/control checks passed, and further Bluetooth testing is optional and issue-driven. Advanced layering is an optional prototype with separate fidelity acceptance.
 
 ## Jazz chatter source investigation
