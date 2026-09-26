@@ -1,6 +1,6 @@
 # v0.1 verification record
 
-This record summarizes completed checks and their limits. [PLAN.md](PLAN.md#remaining-v01-checks) is the sole current release checklist: R1 and R3 remain open, R2 and R4 are accepted, and the handoff decision follows. Earlier investigations are preserved in Git history and raw local artifacts under ignored `data/`; historical “pending” statements are superseded by the current status here.
+This record summarizes completed checks and their limits. [PLAN.md](PLAN.md#remaining-v01-checks) is the sole current release checklist: R1 remains open, R2–R4 are accepted, and the handoff decision follows. Earlier investigations are preserved in Git history and raw local artifacts under ignored `data/`; historical “pending” statements are superseded by the current status here.
 
 The reconciliation introduced no runtime changes, new listening claims or new overnight requirements. Automated, real-model, browser and physical-listening evidence remain distinct.
 
@@ -13,7 +13,7 @@ The reconciliation introduced no runtime changes, new listening claims or new ov
 | Measured endurance | Eight-hour laptop/browser and eight-hour locked-iPhone speaker runs both completed 961/961 complete active samples with no recorded issues. Endurance is accepted. |
 | Local inference during playback | Real scene/event generation and layer-pool expansion pass with ongoing HLS; the phone endurance record also contains brief successful generation for another session. Continuous maximum model load is not claimed or required for v0.1. |
 | Preparation and PWA | User accepts live preparation feedback, installed PWA playback and the five-minute diagnostic preflight, including deliberate pauses. The user accepts HTTPS access after successful use on two other devices; revisit the earlier quirk only if it recurs. |
-| Audible scene quality | Five-scene review completed. Later feedback accepts the creek repair, beach balance, improved chatter without constant pops and the isolated cup sound. Rain's general scene match/transitions were accepted; its thunder exclusion remains R3. |
+| Audible scene quality | Five-scene review completed. Later feedback accepts the creek repair, beach balance, improved chatter without constant pops and the isolated cup sound. Rain's general scene match/transitions were accepted; the focused exclusion follow-up also passes by user report, with no thunder noticed. |
 | Simple event behavior | Real and controlled tests cover scheduling, null decisions, generation, reuse and failures. Explicit ordinary-cadence listening acceptance remains R1. |
 | Scene level control | Numeric limiting, file/PCM input paths, persistence, idle behavior and browser adjustment pass. The user confirms using the Scene level control successfully on iPhone; R2 is accepted. |
 | Startup regression | Native-HLS preparation/Play ordering repaired; Zen/Firefox first-Play freeze reproduced and browser-retested successfully. Further investigation is issue-driven. |
@@ -49,7 +49,7 @@ The original comparative review covered simple forest creek/rain and layered nei
 | Beach surf too loud/close | User considers balance checks complete and recent beach volume much better. No repeat balance pass or separate shoreline-distance gate is required for that report. |
 | Café chatter / constant pops | User approved a controlled room-distance regeneration, then reported improved scene audio with no obvious constant pops after the cache repair. This accepts the auditioned improvement without promising all future seeds. |
 | Cup sound | Isolated recording approved. Remaining perceived layered effect frequency is optional follow-up, separate from the accepted sound. |
-| Rain at the window | General scene and transitions were accepted. More window patter is optional polish; the earlier audible thunder despite “no thunder” remains R3. |
+| Rain at the window | General scene and transitions were accepted. In the focused “no thunder” follow-up, the user reports the scene sounds fine and noticed no thunder. R3 is accepted for this output, without a guarantee for every future generation. More window patter is optional polish. |
 | Jazz reference / later layered transitions | Jazz café was the strongest initial result; no obvious later cuts were reported for the layered scenes. Retain it as a reference rather than repeating the whole review. |
 | Foghorn / espresso / birds treated as continuous beds | Caption/source classification and per-source scheduling repaired and verified with real planning plus unit/integration checks. Layered perceived density/cadence remains a targeted optional check; simple event listening is R1. |
 | Caribbean music narrowed to jazz | Later real planner regression no longer adds jazz. Actual genre variety and musical continuation remain optional fidelity work; an earlier bad caption is not evidence of a current planner failure. |
